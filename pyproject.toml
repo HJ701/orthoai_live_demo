@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "medical-ai-backend"
+version = "0.1.0"
+description = "Medical AI Backend with FastAPI, Alembic, and Celery"
+authors = ["Your Name <you@example.com>"]
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
