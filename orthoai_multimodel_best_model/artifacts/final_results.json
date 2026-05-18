@@ -1,0 +1,238 @@
+{
+  "experiment_id": "1.7",
+  "experiment_name": "OrthoPatientFusion",
+  "fusion_experiment": "late_fusion",
+  "best_checkpoint": "/home/hamzah.al-omairi/Documents/orthoai/models/exp1_7_orthopatientfusion_runs/exp1_7_orthopatientfusion_20260517_155245_job135724/late_fusion/best.ckpt",
+  "deliverable_checkpoint": "/home/hamzah.al-omairi/Documents/orthoai/models/exp1_7_orthopatientfusion_runs/exp1_7_orthopatientfusion_20260517_155245_job135724/late_fusion/exp1_7_late_fusion.ckpt",
+  "best_val_macro_f1": 0.5893081934394372,
+  "val_metrics_best_model": {
+    "accuracy": 0.6447368421052632,
+    "macro_f1": 0.5893081934394372,
+    "macro_auc": 0.7118945850866604,
+    "kappa": 0.3633260937015203,
+    "per_class": {
+      "0": {
+        "support": 40,
+        "precision": 0.6666666666535949,
+        "recall": 0.8499999999787501,
+        "f1": 0.74725274674363,
+        "auc": 0.6993055555555555
+      },
+      "1": {
+        "support": 27,
+        "precision": 0.6249999999609375,
+        "recall": 0.37037037035665293,
+        "f1": 0.46511627858085447,
+        "auc": 0.6386999244142101
+      },
+      "2": {
+        "support": 9,
+        "precision": 0.5555555554938272,
+        "recall": 0.5555555554938272,
+        "f1": 0.5555555549938271,
+        "auc": 0.7976782752902156
+      }
+    },
+    "confusion_matrix": [
+      [
+        34,
+        4,
+        2
+      ],
+      [
+        15,
+        10,
+        2
+      ],
+      [
+        2,
+        2,
+        5
+      ]
+    ],
+    "loss": 0.3826892289676164
+  },
+  "test_metrics_best_model": {
+    "accuracy": 0.6438356164383562,
+    "macro_f1": 0.5234644577473024,
+    "macro_auc": 0.7050987880149332,
+    "kappa": 0.3255152807391614,
+    "per_class": {
+      "0": {
+        "support": 39,
+        "precision": 0.6603773584781061,
+        "recall": 0.8974358974128863,
+        "f1": 0.7608695647124291,
+        "auc": 0.6885369532428356
+      },
+      "1": {
+        "support": 26,
+        "precision": 0.6249999999609375,
+        "recall": 0.3846153846005917,
+        "f1": 0.47619047569614503,
+        "auc": 0.7344517184942717
+      },
+      "2": {
+        "support": 8,
+        "precision": 0.499999999875,
+        "recall": 0.24999999996875,
+        "f1": 0.33333333283333333,
+        "auc": 0.6923076923076923
+      }
+    },
+    "confusion_matrix": [
+      [
+        35,
+        3,
+        1
+      ],
+      [
+        15,
+        10,
+        1
+      ],
+      [
+        3,
+        3,
+        2
+      ]
+    ],
+    "loss": 0.5423151525227647
+  },
+  "class_names": [
+    "0",
+    "1",
+    "2"
+  ],
+  "data_stats": {
+    "ingest": [
+      {
+        "source_csv": "/home/hamzah.al-omairi/Documents/orthoai/data/Orthoai-cleaned-dataset-dr-Mohammed/rgb_intraoral_labels_matched_from_rgb_intraoral_cleaned.csv",
+        "modality": "rgb",
+        "total_rows": 5274,
+        "kept_rows": 5070,
+        "skipped_missing_label": 204,
+        "skipped_missing_path": 0,
+        "skipped_invalid_image": 0
+      },
+      {
+        "source_csv": "/home/hamzah.al-omairi/Documents/orthoai/data/Orthoai-cleaned-dataset-dr-Mohammed/opg_cleaned.csv",
+        "modality": "xray",
+        "total_rows": 1453,
+        "kept_rows": 1388,
+        "skipped_missing_label": 65,
+        "skipped_missing_path": 0,
+        "skipped_invalid_image": 0
+      }
+    ],
+    "grouping": {
+      "input_patients": 1476,
+      "kept_patients": 499,
+      "skipped_missing_required_modality": 977,
+      "skipped_too_few_images": 0,
+      "label_conflict_patients_majority_vote": 0,
+      "required_modalities": [
+        "rgb",
+        "xray"
+      ]
+    },
+    "split_summary": {
+      "train": {
+        "split": "train",
+        "num_patients": 350,
+        "num_images": 2833,
+        "images_per_patient": {
+          "min": 2,
+          "max": 51,
+          "mean": 8.094285714285714,
+          "median": 6.0
+        },
+        "class_counts": {
+          "0": 185,
+          "1": 124,
+          "2": 41
+        },
+        "modality_counts": {
+          "rgb": 2453,
+          "xray": 380
+        },
+        "view_counts": {
+          "intraoral_other": 2218,
+          "opg": 380,
+          "buccal_left": 55,
+          "buccal_right": 55,
+          "frontal": 63,
+          "occlusal_mandibular": 31,
+          "occlusal_maxillary": 31
+        }
+      },
+      "val": {
+        "split": "val",
+        "num_patients": 76,
+        "num_images": 593,
+        "images_per_patient": {
+          "min": 3,
+          "max": 35,
+          "mean": 7.802631578947368,
+          "median": 6.0
+        },
+        "class_counts": {
+          "0": 40,
+          "1": 27,
+          "2": 9
+        },
+        "modality_counts": {
+          "rgb": 511,
+          "xray": 82
+        },
+        "view_counts": {
+          "intraoral_other": 441,
+          "opg": 82,
+          "buccal_left": 17,
+          "buccal_right": 16,
+          "frontal": 19,
+          "occlusal_mandibular": 9,
+          "occlusal_maxillary": 9
+        }
+      },
+      "test": {
+        "split": "test",
+        "num_patients": 73,
+        "num_images": 671,
+        "images_per_patient": {
+          "min": 2,
+          "max": 34,
+          "mean": 9.191780821917808,
+          "median": 7.0
+        },
+        "class_counts": {
+          "0": 39,
+          "1": 26,
+          "2": 8
+        },
+        "modality_counts": {
+          "rgb": 589,
+          "xray": 82
+        },
+        "view_counts": {
+          "intraoral_other": 523,
+          "opg": 82,
+          "frontal": 17,
+          "buccal_left": 15,
+          "buccal_right": 16,
+          "occlusal_maxillary": 9,
+          "occlusal_mandibular": 8,
+          "buccal": 1
+        }
+      }
+    }
+  },
+  "graphs": [
+    "/home/hamzah.al-omairi/Documents/orthoai/models/exp1_7_orthopatientfusion_runs/exp1_7_orthopatientfusion_20260517_155245_job135724/late_fusion/graphs/loss_curve.png",
+    "/home/hamzah.al-omairi/Documents/orthoai/models/exp1_7_orthopatientfusion_runs/exp1_7_orthopatientfusion_20260517_155245_job135724/late_fusion/graphs/val_metrics_curve.png",
+    "/home/hamzah.al-omairi/Documents/orthoai/models/exp1_7_orthopatientfusion_runs/exp1_7_orthopatientfusion_20260517_155245_job135724/late_fusion/graphs/lr_curve.png"
+  ],
+  "graph_error": null,
+  "metadata_file": "/home/hamzah.al-omairi/Documents/orthoai/models/exp1_7_orthopatientfusion_runs/exp1_7_orthopatientfusion_20260517_155245_job135724/late_fusion/metadata.json",
+  "train_log": "/home/hamzah.al-omairi/Documents/orthoai/models/exp1_7_orthopatientfusion_runs/exp1_7_orthopatientfusion_20260517_155245_job135724/late_fusion/train_log.jsonl"
+}

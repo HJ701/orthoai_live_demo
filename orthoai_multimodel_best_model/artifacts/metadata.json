@@ -1,0 +1,174 @@
+{
+  "args": {
+    "experiment": "late_fusion",
+    "rgb_csv": "data/Orthoai-cleaned-dataset-dr-Mohammed/rgb_intraoral_labels_matched_from_rgb_intraoral_cleaned.csv",
+    "opg_csv": "data/Orthoai-cleaned-dataset-dr-Mohammed/opg_cleaned.csv",
+    "strict_cleaned_csv": false,
+    "required_modalities": "rgb,xray",
+    "min_images_per_patient": 2,
+    "max_images_per_patient": 8,
+    "max_images_per_view": 2,
+    "split_ratios": "0.70,0.15,0.15",
+    "seed": 42,
+    "opg_encoder_name": "convnext_tiny",
+    "rgb_encoder_name": "convnext_tiny",
+    "encoder_init_source": "imagenet",
+    "shared_encoder": false,
+    "freeze_encoders": false,
+    "token_dim": 512,
+    "fusion_layers": 2,
+    "fusion_heads": 8,
+    "diagnosis_queries": 1,
+    "dropout": 0.25,
+    "image_size": 224,
+    "epochs": 60,
+    "min_epochs": 15,
+    "early_stopping_patience": 10,
+    "batch_size": 4,
+    "accum_steps": 1,
+    "num_workers": 8,
+    "encoder_lr": 1e-05,
+    "fusion_lr": 0.0005,
+    "min_lr_scale": 0.1,
+    "warmup_epochs": 5,
+    "weight_decay": 0.05,
+    "criterion": "focal",
+    "focal_gamma": 2.0,
+    "class_weight_mode": "sqrt_balanced",
+    "aux_loss_weight": 0.25,
+    "device": "cuda",
+    "amp": true,
+    "save_every": 5,
+    "out_dir": "models/exp1_7_orthopatientfusion_runs/exp1_7_orthopatientfusion_20260517_155245_job135724/late_fusion",
+    "checkpoint_name": "exp1_7_late_fusion.ckpt",
+    "resume": ""
+  },
+  "class_names": [
+    "0",
+    "1",
+    "2"
+  ],
+  "data_stats": {
+    "ingest": [
+      {
+        "source_csv": "/home/hamzah.al-omairi/Documents/orthoai/data/Orthoai-cleaned-dataset-dr-Mohammed/rgb_intraoral_labels_matched_from_rgb_intraoral_cleaned.csv",
+        "modality": "rgb",
+        "total_rows": 5274,
+        "kept_rows": 5070,
+        "skipped_missing_label": 204,
+        "skipped_missing_path": 0,
+        "skipped_invalid_image": 0
+      },
+      {
+        "source_csv": "/home/hamzah.al-omairi/Documents/orthoai/data/Orthoai-cleaned-dataset-dr-Mohammed/opg_cleaned.csv",
+        "modality": "xray",
+        "total_rows": 1453,
+        "kept_rows": 1388,
+        "skipped_missing_label": 65,
+        "skipped_missing_path": 0,
+        "skipped_invalid_image": 0
+      }
+    ],
+    "grouping": {
+      "input_patients": 1476,
+      "kept_patients": 499,
+      "skipped_missing_required_modality": 977,
+      "skipped_too_few_images": 0,
+      "label_conflict_patients_majority_vote": 0,
+      "required_modalities": [
+        "rgb",
+        "xray"
+      ]
+    },
+    "split_summary": {
+      "train": {
+        "split": "train",
+        "num_patients": 350,
+        "num_images": 2833,
+        "images_per_patient": {
+          "min": 2,
+          "max": 51,
+          "mean": 8.094285714285714,
+          "median": 6.0
+        },
+        "class_counts": {
+          "0": 185,
+          "1": 124,
+          "2": 41
+        },
+        "modality_counts": {
+          "rgb": 2453,
+          "xray": 380
+        },
+        "view_counts": {
+          "intraoral_other": 2218,
+          "opg": 380,
+          "buccal_left": 55,
+          "buccal_right": 55,
+          "frontal": 63,
+          "occlusal_mandibular": 31,
+          "occlusal_maxillary": 31
+        }
+      },
+      "val": {
+        "split": "val",
+        "num_patients": 76,
+        "num_images": 593,
+        "images_per_patient": {
+          "min": 3,
+          "max": 35,
+          "mean": 7.802631578947368,
+          "median": 6.0
+        },
+        "class_counts": {
+          "0": 40,
+          "1": 27,
+          "2": 9
+        },
+        "modality_counts": {
+          "rgb": 511,
+          "xray": 82
+        },
+        "view_counts": {
+          "intraoral_other": 441,
+          "opg": 82,
+          "buccal_left": 17,
+          "buccal_right": 16,
+          "frontal": 19,
+          "occlusal_mandibular": 9,
+          "occlusal_maxillary": 9
+        }
+      },
+      "test": {
+        "split": "test",
+        "num_patients": 73,
+        "num_images": 671,
+        "images_per_patient": {
+          "min": 2,
+          "max": 34,
+          "mean": 9.191780821917808,
+          "median": 7.0
+        },
+        "class_counts": {
+          "0": 39,
+          "1": 26,
+          "2": 8
+        },
+        "modality_counts": {
+          "rgb": 589,
+          "xray": 82
+        },
+        "view_counts": {
+          "intraoral_other": 523,
+          "opg": 82,
+          "frontal": 17,
+          "buccal_left": 15,
+          "buccal_right": 16,
+          "occlusal_maxillary": 9,
+          "occlusal_mandibular": 8,
+          "buccal": 1
+        }
+      }
+    }
+  }
+}
