@@ -5,6 +5,7 @@ from app.config import settings
 from app.database import engine, Base
 from app.api.routes import auth, cases, inference, results
 from app.api.middleware import AuditLoggingMiddleware, setup_rate_limiting
+from sqlalchemy import text
 import uvicorn
 
 # Create database tables (in production, use Alembic migrations)
@@ -67,7 +68,35 @@ app = setup_rate_limiting(app)
 # Health check endpoint
 @app.get("/health")
 def health_check():
-    return {"status": "healthy"}
+    return {"status": "ok"}
+
+
+@app.get("/ready")
+def readiness_check():
+    checks = {}
+
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+        checks["database"] = "ok"
+    except Exception:
+        checks["database"] = "error"
+
+    try:
+        import redis
+
+        redis_client = redis.Redis.from_url(settings.redis_url, socket_connect_timeout=2)
+        redis_client.ping()
+        checks["redis"] = "ok"
+    except Exception:
+        checks["redis"] = "error"
+
+    ready = all(status == "ok" for status in checks.values())
+    status_code = 200 if ready else 503
+    return JSONResponse(
+        status_code=status_code,
+        content={"status": "ready" if ready else "not_ready", "checks": checks},
+    )
 
 
 # Include routers

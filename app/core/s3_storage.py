@@ -122,6 +122,32 @@ def generate_presigned_url(s3_key: str, expiration: int = 3600) -> Optional[str]
         return None
 
 
+def download_file_from_s3(s3_key: str) -> bytes:
+    """
+    Download an S3 object into memory.
+
+    Raises:
+        ValueError: If bucket name is not configured
+        ClientError/BotoCoreError: If S3 download fails
+    """
+    if not settings.aws_s3_bucket_name:
+        raise ValueError("AWS_S3_BUCKET_NAME is not configured")
+
+    try:
+        s3_client = get_s3_client()
+        response = s3_client.get_object(
+            Bucket=settings.aws_s3_bucket_name,
+            Key=s3_key,
+        )
+        return response["Body"].read()
+    except ClientError as e:
+        logger.error(f"Failed to download file from S3 {s3_key}: {e}")
+        raise
+    except BotoCoreError as e:
+        logger.error(f"AWS error during S3 download {s3_key}: {e}")
+        raise
+
+
 def delete_file_from_s3(s3_key: str) -> bool:
     """
     Delete a file from S3.

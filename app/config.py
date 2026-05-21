@@ -11,10 +11,10 @@ class Settings(BaseSettings):
     environment: str = "development"  # "development" or "production"
     
     # Database - Read from .env file
-    database_url: str = ""
+    database_url: str = "postgresql://user:password@localhost:5432/medical_ai_db"
     
     # JWT - Read from .env file
-    secret_key: str = ""
+    secret_key: str = "dev-secret-key-change-in-production"
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     
@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     # Rate Limiting
     rate_limit_enabled: bool = True
     rate_limit_per_minute: int = 60
+    rate_limit_storage: str = "memory"  # "memory" or "redis"
     
     # CORS
     cors_origins: str = "*"  # Comma-separated list of origins, or "*" for all
@@ -71,10 +72,23 @@ class Settings(BaseSettings):
         if self.environment.lower() == "production":
             logger.info("Running in PRODUCTION mode")
             # Validate critical production settings
-            if self.secret_key == "dev-secret-key-change-in-production":
-                logger.warning("WARNING: Using default secret key in production! This is insecure.")
-            if self.database_url.startswith("postgresql://medical:medical_ai@localhost"):
-                logger.warning("WARNING: Using default database URL in production!")
+            errors = []
+            if not self.secret_key or self.secret_key == "dev-secret-key-change-in-production":
+                errors.append("SECRET_KEY must be set to a strong non-default value")
+            if (
+                not self.database_url
+                or "localhost" in self.database_url
+                or self.database_url == "postgresql://user:password@localhost:5432/medical_ai_db"
+            ):
+                errors.append("DATABASE_URL must point to the production database")
+            if self.cors_origins.strip() == "*":
+                errors.append("CORS_ORIGINS must list explicit production origins")
+            if not self.aws_s3_bucket_name:
+                errors.append("AWS_S3_BUCKET_NAME must be configured")
+            if self.rate_limit_enabled and self.rate_limit_storage.lower() != "redis":
+                errors.append("RATE_LIMIT_STORAGE=redis is required in production")
+            if errors:
+                raise ValueError("Invalid production configuration: " + "; ".join(errors))
             
             # Log which values are being used (without exposing secrets)
             logger.info("Configuration loaded from environment variables/.env file")
