@@ -26,13 +26,20 @@
 - Git LFS checkpoint downloaded locally:
   - `orthoai_multimodel_best_model/weights/late_fusion_best.ckpt`
   - Expected size: `713964702` bytes
+- Client model source files are now present:
+  - `OrthoPatientFusion/ortho_patient_fusion_core.py`
+  - `data_pipeline.py`
+  - `train_exp1_6_malocclusion.py`
+- Python compile check passes for the backend and model source files.
 
 ## Remaining Before Deploying New Model Code
 
-- Client must provide the missing model source package:
-  - `OrthoPatientFusion/ortho_patient_fusion_core.py`
-- The current model runtime imports this package directly.
-- Without it, the new checkpoint cannot be loaded even though the checkpoint file exists.
+- Merge `integrate-multimodel-backend` into `main`.
+- Build and push the new backend Docker image to ECR.
+- Update ECS API and Celery services to the new task definition/image.
+- Run database migrations if needed.
+- Verify `/health`, `/ready`, auth, upload, inference, results, and PDF download paths.
+- Verify the model loads in the production container with the checkpoint and Python dependencies.
 
 ## Deployment Notes
 
@@ -40,3 +47,4 @@
 - Do not commit `.aws-local/`.
 - Do not commit `.merge-backup/`.
 - Do not recommit the expanded checkpoint as a normal Git file; it must remain managed by Git LFS.
+- Current AWS CLI profile must be valid before deployment; `InvalidClientTokenId` means the local access key must be replaced or reactivated.
