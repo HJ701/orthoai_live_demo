@@ -24,6 +24,11 @@ WORKDIR /app
 # Copy requirements first for better caching
 COPY requirements.txt .
 
+# Install CPU-only PyTorch first so pip does not pull the much larger CUDA wheel set.
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
+    torch==2.5.1+cpu \
+    torchvision==0.20.1+cpu
+
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
