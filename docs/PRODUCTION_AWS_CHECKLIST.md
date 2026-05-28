@@ -21,8 +21,18 @@
 ## Verified
 
 - `https://api.demo.orthoai.co/health` returns `200`.
+- `https://api.demo.orthoai.co/ready` returns `ready` with database and Redis checks passing.
+- `https://api.demo.orthoai.co/docs` returns `200`.
 - DNS validation for `api.demo.orthoai.co` completed.
 - ACM certificate for `api.demo.orthoai.co` is issued and attached to the ALB HTTPS listener.
+- Docker image pushed to ECR:
+  - Tag: `fd3557a`
+  - Digest: `sha256:80732c53845e283949b642e6de1e58a0cce7f601057db77327f5b27d677bca2b`
+- ECS services are stable:
+  - Backend task definition: `medical-ai-production-backend:7`
+  - Celery task definition: `medical-ai-production-celery:8`
+- RDS PostgreSQL instance `medical-ai-production-db` created in private subnets.
+- Alembic migrations applied through revision `3279515f6aee`.
 - Git LFS checkpoint downloaded locally:
   - `orthoai_multimodel_best_model/weights/late_fusion_best.ckpt`
   - Expected size: `713964702` bytes
@@ -32,19 +42,19 @@
   - `train_exp1_6_malocclusion.py`
 - Python compile check passes for the backend and model source files.
 
-## Remaining Before Deploying New Model Code
+## Remaining
 
-- Merge `integrate-multimodel-backend` into `main`.
-- Build and push the new backend Docker image to ECR.
-- Update ECS API and Celery services to the new task definition/image.
-- Run database migrations if needed.
-- Verify `/health`, `/ready`, auth, upload, inference, results, and PDF download paths.
-- Verify the model loads in the production container with the checkpoint and Python dependencies.
+- Run authenticated end-to-end workflow from Wix frontend to AWS backend.
+- Test upload, inference, results, and PDF download paths with real user data.
+- Trigger a real inference job and verify the model loads successfully inside the Celery worker.
+- Move sensitive ECS environment values into AWS Secrets Manager or SSM Parameter Store.
+- Set up or confirm CI/CD for future image builds and ECS deployments.
+- Add CloudWatch alarms for ALB 5xx, ECS task failures, RDS health, Redis health, and high latency.
 
 ## Deployment Notes
 
-- The current deployed API does not expose `/ready`; that endpoint exists only in the integration branch until a new image is built and deployed.
+- The deployed API now exposes `/ready`.
 - Do not commit `.aws-local/`.
 - Do not commit `.merge-backup/`.
 - Do not recommit the expanded checkpoint as a normal Git file; it must remain managed by Git LFS.
-- Current AWS CLI profile must be valid before deployment; `InvalidClientTokenId` means the local access key must be replaced or reactivated.
+- Use CPU-only PyTorch wheels in Docker builds unless GPU-backed ECS capacity is introduced.
