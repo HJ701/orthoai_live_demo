@@ -2,9 +2,26 @@
 
 The repository includes `.github/workflows/deploy-backend.yml` for manual backend deployments.
 
+## AWS Role
+
+Created role:
+
+```text
+arn:aws:iam::100161936735:role/orthoai-github-actions-deploy-role
+```
+
 ## Required GitHub Secret
 
-- `AWS_ROLE_TO_ASSUME`: IAM role ARN trusted by GitHub Actions OIDC for this repository.
+Add this repository secret in GitHub:
+
+- Name: `AWS_ROLE_TO_ASSUME`
+- Value: `arn:aws:iam::100161936735:role/orthoai-github-actions-deploy-role`
+
+Path:
+
+```text
+GitHub repo -> Settings -> Secrets and variables -> Actions -> New repository secret
+```
 
 ## Required Role Permissions
 
@@ -16,4 +33,4 @@ The role needs permission to:
 - Run and inspect one-off ECS migration tasks.
 - Pass the existing ECS task and execution roles.
 
-The current `deploy_agent` AWS user does not have IAM permissions to create this role.
+The AWS OIDC provider and deploy role have been created. The remaining manual step is adding the GitHub repository secret above.
