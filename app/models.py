@@ -42,6 +42,8 @@ class User(Base):
     
     # Status and Metadata
     is_active = Column(Boolean, default=True)
+    terms_accepted = Column(Boolean, default=False, nullable=False)
+    terms_accepted_at = Column(DateTime(timezone=True), nullable=True)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     provider_data = Column(JSON, nullable=True)  # Additional provider-specific data (e.g., roles, groups)
     

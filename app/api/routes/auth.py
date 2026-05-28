@@ -9,8 +9,9 @@ from app.core.security import (
     verify_otp
 )
 from app.core.email import send_otp_email_async
-from app.schemas import Token, OTPRequest, OTPResponse, OTPLogin, UserResponse, UserCreate
+from app.schemas import Token, OTPRequest, OTPResponse, OTPLogin, TermsAcceptanceResponse
 from app.config import settings
+from app.api.deps import get_current_user_dependency
 import logging
 
 logger = logging.getLogger(__name__)
@@ -109,3 +110,21 @@ def login(
     )
     
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.put("/accept-terms", response_model=TermsAcceptanceResponse)
+def accept_terms(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Mark the authenticated user's terms as accepted."""
+    accepted_at = datetime.utcnow()
+    current_user.terms_accepted = True
+    current_user.terms_accepted_at = accepted_at
+    db.commit()
+
+    return TermsAcceptanceResponse(
+        message="Terms accepted",
+        terms_accepted=True,
+        terms_accepted_at=accepted_at,
+    )
