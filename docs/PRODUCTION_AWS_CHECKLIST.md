@@ -48,7 +48,7 @@
 - Test upload, inference, results, and PDF download paths with real user data.
 - Trigger a real inference job and verify the model loads successfully inside the Celery worker.
 - Move sensitive ECS environment values into AWS Secrets Manager or SSM Parameter Store.
-- Set up or confirm CI/CD for future image builds and ECS deployments.
+- Have an AWS admin create the GitHub Actions OIDC deploy role and add it as GitHub secret `AWS_ROLE_TO_ASSUME`.
 - Add CloudWatch alarms for ALB 5xx, ECS task failures, RDS health, Redis health, and high latency.
 
 ## Deployment Notes
