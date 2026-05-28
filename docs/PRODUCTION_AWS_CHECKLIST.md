@@ -23,6 +23,9 @@
 - `https://api.demo.orthoai.co/health` returns `200`.
 - `https://api.demo.orthoai.co/ready` returns `ready` with database and Redis checks passing.
 - `https://api.demo.orthoai.co/docs` returns `200`.
+- CloudWatch dashboard `OrthoAI-Production` created.
+- CloudWatch alarms created for ALB, ECS, RDS, Redis, and application log errors.
+- SNS topic `orthoai-production-alerts` created for alarm notifications.
 - DNS validation for `api.demo.orthoai.co` completed.
 - ACM certificate for `api.demo.orthoai.co` is issued and attached to the ALB HTTPS listener.
 - Docker image pushed to ECR:
@@ -49,7 +52,7 @@
 - Trigger a real inference job and verify the model loads successfully inside the Celery worker.
 - Move sensitive ECS environment values into AWS Secrets Manager or SSM Parameter Store.
 - Add GitHub repository secret `AWS_ROLE_TO_ASSUME` with the created OIDC deploy role ARN.
-- Add CloudWatch alarms for ALB 5xx, ECS task failures, RDS health, Redis health, and high latency.
+- Add at least one confirmed SNS subscription to `orthoai-production-alerts`.
 
 ## Deployment Notes
 
