@@ -1,0 +1,712 @@
+<!doctype html>
+<!-- OrthoAI Shadow-Mode Clinical Validation — Case Record Form (API-backed) -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>OrthoAI · Shadow-Mode Case Record</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --paper:#F6F3EC; --paper-2:#FBFAF6;
+    --ink:#13302C; --ink-soft:#3C4F4B; --muted:#6E7E79;
+    --line:#D9D3C6; --line-soft:#E7E2D6;
+    --teal:#0F766E; --teal-deep:#0B5550;
+    --amber:#B45309; --amber-soft:#FBEFE0;
+    --green:#15803D; --red:#9F3B36;
+    --shadow:0 1px 2px rgba(19,48,44,.06),0 8px 24px rgba(19,48,44,.06);
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:radial-gradient(1200px 500px at 90% -10%, rgba(15,118,110,.06), transparent 60%),var(--paper);
+    color:var(--ink);font-family:"Public Sans",system-ui,sans-serif;font-size:15px;line-height:1.5;
+    -webkit-font-smoothing:antialiased;padding:28px 18px 80px;
+  }
+  .wrap{max-width:860px;margin:0 auto}
+
+  header.masthead{
+    border-bottom:1px solid var(--line);padding-bottom:14px;margin-bottom:14px;
+    display:flex;align-items:flex-end;justify-content:space-between;gap:18px;flex-wrap:wrap;
+  }
+  .brand{display:flex;flex-direction:column;gap:4px}
+  .brand .logo{font-family:"Newsreader",serif;font-weight:600;font-size:32px;letter-spacing:-.5px;line-height:1;color:var(--ink)}
+  .brand .logo span{color:var(--teal)}
+  .brand .sub{font-size:13px;color:var(--ink-soft);font-weight:500}
+  .badge-row{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+  .badge{
+    font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.4px;text-transform:uppercase;
+    color:var(--teal-deep);background:rgba(15,118,110,.08);border:1px solid rgba(15,118,110,.18);
+    border-radius:999px;padding:5px 11px;white-space:nowrap;
+  }
+
+  /* connection bar */
+  .conn-bar{
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:24px;
+    background:var(--paper-2);border:1px solid var(--line);border-radius:11px;padding:9px 13px;
+    font-size:12.5px;color:var(--ink-soft);
+  }
+  .dot{width:9px;height:9px;border-radius:50%;background:#B6B0A2;flex:0 0 auto}
+  .dot.ok{background:var(--green);box-shadow:0 0 0 3px rgba(21,128,61,.15)}
+  .dot.warn{background:var(--amber);box-shadow:0 0 0 3px rgba(180,83,9,.15)}
+  .dot.err{background:var(--red);box-shadow:0 0 0 3px rgba(159,59,54,.15)}
+  .conn-bar .grow{flex:1}
+  .conn-bar .case-chip{
+    font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--teal-deep);
+    background:rgba(15,118,110,.08);border:1px solid rgba(15,118,110,.16);
+    border-radius:999px;padding:5px 10px;
+  }
+  .conn-bar input{
+    font-family:"IBM Plex Mono",monospace;font-size:12.5px;border:1px solid var(--line);
+    border-radius:8px;padding:7px 10px;width:200px;background:#fff;
+  }
+  .conn-bar input:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 3px rgba(15,118,110,.14)}
+
+  .card{
+    background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:var(--shadow);padding:22px 22px 24px;margin-bottom:20px;position:relative;
+  }
+  .step-tag{
+    font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:1px;text-transform:uppercase;
+    color:var(--muted);display:flex;align-items:center;gap:8px;margin-bottom:4px;
+  }
+  .step-tag .n{
+    width:20px;height:20px;border-radius:6px;background:var(--ink);color:var(--paper-2);
+    display:inline-flex;align-items:center;justify-content:center;font-weight:600;font-size:11px;
+  }
+  .card h2{font-family:"Newsreader",serif;font-weight:600;font-size:21px;margin:0 0 4px;letter-spacing:-.2px}
+  .card .lead{font-size:13px;color:var(--ink-soft);margin:0 0 18px}
+
+  .note{
+    font-size:12.5px;color:var(--amber);background:var(--amber-soft);
+    border:1px solid rgba(180,83,9,.25);border-radius:10px;padding:10px 13px;margin:0 0 16px;
+    display:flex;gap:9px;align-items:flex-start;line-height:1.45;
+  }
+  .note b{color:var(--amber)} .note .ic{flex:0 0 auto;margin-top:1px}
+
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px 18px}
+  .grid.three{grid-template-columns:repeat(3,1fr)}
+  .field{display:flex;flex-direction:column;gap:6px;min-width:0}
+  .field.full{grid-column:1/-1}
+  label{font-size:12.5px;font-weight:600;color:var(--ink-soft);letter-spacing:.1px}
+  label .hint{font-weight:400;color:var(--muted)}
+  input[type=text],input[type=number],input[type=date],input[type=password],select,textarea{
+    font-family:inherit;font-size:14.5px;color:var(--ink);background:#fff;border:1px solid var(--line);
+    border-radius:9px;padding:10px 12px;width:100%;transition:border-color .15s,box-shadow .15s;
+  }
+  input.mono{font-family:"IBM Plex Mono",monospace}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 3px rgba(15,118,110,.14)}
+  textarea{resize:vertical;min-height:64px}
+  select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' stroke='%236E7E79' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+    background-repeat:no-repeat;background-position:right 12px center;padding-right:32px}
+
+  .seg{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff}
+  .seg button{
+    flex:1;border:none;background:#fff;font-family:inherit;font-size:14px;font-weight:600;color:var(--ink-soft);
+    padding:9px 4px;cursor:pointer;border-right:1px solid var(--line-soft);transition:background .12s,color .12s;
+  }
+  .seg button:last-child{border-right:none}
+  .seg button[aria-pressed=true]{background:var(--teal);color:#fff}
+  .seg.small button{font-size:12.5px;padding:8px 4px;font-family:"IBM Plex Mono",monospace}
+
+  .checks{display:flex;gap:16px;flex-wrap:wrap}
+  .chk{display:flex;align-items:center;gap:7px;font-size:13.5px;color:var(--ink-soft);font-weight:500}
+  .chk input{width:17px;height:17px;accent-color:var(--teal)}
+  .radios{display:flex;gap:14px;flex-wrap:wrap}
+  .rad{display:flex;align-items:center;gap:6px;font-size:13.5px;color:var(--ink-soft);font-weight:500;cursor:pointer}
+  .rad input{width:16px;height:16px;accent-color:var(--teal)}
+
+  .lock-bar{display:flex;align-items:center;gap:12px;margin-top:18px;flex-wrap:wrap}
+  .btn{
+    font-family:inherit;font-weight:600;font-size:14px;border-radius:10px;border:1px solid transparent;
+    padding:11px 18px;cursor:pointer;transition:transform .08s,background .15s,border-color .15s,opacity .15s;
+    display:inline-flex;align-items:center;gap:8px;
+  }
+  .btn:active{transform:translateY(1px)}
+  .btn.primary{background:var(--teal);color:#fff}
+  .btn.primary:hover{background:var(--teal-deep)}
+  .btn.primary[disabled]{opacity:.55;cursor:wait}
+  .btn.ghost{background:transparent;color:var(--ink-soft);border-color:var(--line)}
+  .btn.ghost:hover{border-color:var(--muted)}
+  .btn.tiny{padding:6px 11px;font-size:12px;border-radius:8px}
+  .lock-hint{font-size:12px;color:var(--muted)}
+
+  #aiCard{transition:opacity .4s ease, filter .4s ease}
+  #aiCard.locked{opacity:.5;filter:grayscale(.6) blur(.4px)}
+  #aiCard.locked .card-body{pointer-events:none;user-select:none}
+  #aiCard.locked .veil{display:flex}
+  .veil{
+    display:none;position:absolute;inset:0;border-radius:var(--radius);z-index:3;
+    background:linear-gradient(180deg,rgba(251,250,246,.55),rgba(251,250,246,.85));
+    align-items:center;justify-content:center;text-align:center;padding:24px;
+  }
+  .veil .v-inner{max-width:340px}
+  .veil .v-ic{font-size:26px}
+  .veil p{font-size:13px;color:var(--ink-soft);margin:8px 0 0;line-height:1.5}
+  .reveal-anim{animation:reveal .45s ease both}
+  @keyframes reveal{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .step1-locked input,.step1-locked select{background:#F2EFE6;color:var(--ink-soft)}
+
+  .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:4px}
+  .save-flash{font-size:13px;color:var(--green);font-weight:600;opacity:0;transition:opacity .3s}
+  .save-flash.show{opacity:1}
+  .save-flash.err{color:var(--red)}
+
+  .log-card{background:var(--ink);color:#E8EFEC;border:none}
+  .log-card h2{color:#fff} .log-card .lead{color:#A8BDB7}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:6px 0 16px}
+  .stat{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:11px;padding:13px 14px}
+  .stat .v{font-family:"IBM Plex Mono",monospace;font-size:24px;font-weight:600;color:#fff;line-height:1}
+  .stat .k{font-size:11px;color:#9FB6B0;margin-top:6px;letter-spacing:.2px}
+  .stat.alert .v{color:#FBBF77}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
+  th,td{text-align:left;padding:8px 9px;border-bottom:1px solid rgba(255,255,255,.09)}
+  th{font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;color:#9FB6B0;font-weight:600}
+  td{font-family:"IBM Plex Mono",monospace;color:#D7E2DE}
+  .pill{display:inline-block;font-size:10.5px;padding:2px 8px;border-radius:999px;font-family:"Public Sans"}
+  .pill.match{background:rgba(34,197,94,.18);color:#86E0A6}
+  .pill.miss{background:rgba(180,83,9,.22);color:#F6B873}
+  .empty-log{color:#8FA7A1;font-size:13px;padding:14px 2px}
+  .row-del{background:none;border:none;color:#C98F8B;cursor:pointer;font-size:13px;padding:2px 6px;border-radius:6px}
+  .row-del:hover{background:rgba(242,168,164,.12)}
+  .log-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+  .btn.on-dark{border-color:rgba(255,255,255,.25);color:#E8EFEC;background:transparent}
+  .btn.on-dark:hover{background:rgba(255,255,255,.08)}
+  .btn.on-dark.solid{background:#E8EFEC;color:var(--ink);border-color:#E8EFEC}
+
+  .kpi-map{font-size:12px;margin-top:18px;color:#9FB6B0}
+  .kpi-map summary{cursor:pointer;font-weight:600;color:#C9D9D4}
+  .kpi-map ul{margin:8px 0 0;padding-left:18px;line-height:1.6;color:#A8BDB7}
+  .kpi-map b{color:#E8EFEC}
+
+  .req{color:var(--amber)}
+  .small-divider{height:1px;background:var(--line-soft);margin:18px 0}
+
+  @media(max-width:620px){
+    .grid,.grid.three{grid-template-columns:1fr}
+    .stats{grid-template-columns:repeat(2,1fr)}
+    body{padding:18px 12px 70px}
+    .conn-bar input{width:140px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="brand">
+      <div class="logo">Ortho<span>AI</span></div>
+      <div class="sub">Shadow-Mode Clinical Validation · Case Record</div>
+    </div>
+    <div class="badge-row">
+      <span class="badge">Non-interventional</span>
+      <span class="badge">De-identified at source</span>
+      <span class="badge">Does not affect care</span>
+    </div>
+  </header>
+
+  <div class="conn-bar">
+    <span class="dot" id="connDot"></span>
+    <span id="connText">Checking server…</span>
+    <span class="grow"></span>
+    <span class="case-chip" id="sourceCase">Case —</span>
+    <input type="password" id="sessionToken" placeholder="Session token" autocomplete="off" />
+    <button class="btn ghost tiny" id="keyBtn">Use token</button>
+  </div>
+
+  <!-- ============ CASE DETAILS ============ -->
+  <section class="card">
+    <div class="step-tag"><span class="n">0</span> Case details</div>
+    <h2>Case &amp; site</h2>
+    <p class="lead">One record per consecutive new orthodontic patient. Use a de-identified case code only — no names, no MRN.</p>
+
+    <div class="grid">
+      <div class="field">
+        <label>Site / clinic code <span class="req">*</span></label>
+        <input type="text" id="site" class="mono" placeholder="e.g. C-04" />
+      </div>
+      <div class="field">
+        <label>Case ID (de-identified) <span class="req">*</span></label>
+        <input type="text" id="caseId" class="mono" placeholder="e.g. C04-0017" />
+      </div>
+      <div class="field">
+        <label>Assessment date <span class="req">*</span></label>
+        <input type="date" id="date" />
+      </div>
+      <div class="field">
+        <label>Assessing clinician (initials)</label>
+        <input type="text" id="clin" class="mono" placeholder="e.g. AH" />
+      </div>
+      <div class="field">
+        <label>Patient age <span class="hint">(yrs)</span></label>
+        <input type="number" id="age" min="0" max="120" placeholder="—" />
+      </div>
+      <div class="field">
+        <label>Patient sex</label>
+        <select id="sex">
+          <option value="">—</option><option>Female</option><option>Male</option>
+          <option>Other</option><option>Undisclosed</option>
+        </select>
+      </div>
+      <div class="field full">
+        <label>Records available for this case</label>
+        <div class="checks">
+          <label class="chk"><input type="checkbox" id="recOPG" checked /> OPG panoramic</label>
+          <label class="chk"><input type="checkbox" id="recPhoto" checked /> Intraoral photographs</label>
+          <label class="chk"><input type="checkbox" id="recOther" /> Other</label>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ STEP 1 ============ -->
+  <section class="card" id="step1Card">
+    <div class="step-tag"><span class="n">1</span> Reference standard</div>
+    <h2>Your independent assessment</h2>
+    <p class="lead">This is the ground truth the model is measured against.</p>
+
+    <div class="note">
+      <span class="ic">🔒</span>
+      <div>Complete this <b>before</b> viewing the AI output. Once you lock it, the AI panel unlocks — this protects the validity of the agreement statistics by preventing anchoring.</div>
+    </div>
+
+    <div id="step1Fields">
+      <div class="grid">
+        <div class="field">
+          <label>Malocclusion class (Angle) <span class="req">*</span></label>
+          <select id="m_class">
+            <option value="">— select —</option>
+            <option>Class I</option><option>Class II div 1</option>
+            <option>Class II div 2</option><option>Class III</option><option>Unclassifiable</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>IOTN — DHC grade <span class="req">*</span></label>
+          <select id="dhc">
+            <option value="">— select —</option>
+            <option value="1">1 · No need</option><option value="2">2 · Little need</option>
+            <option value="3">3 · Borderline / moderate</option><option value="4">4 · Great need</option>
+            <option value="5">5 · Very great need</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>IOTN — AC grade <span class="hint">(1 most → 10 least attractive)</span></label>
+          <select id="ac">
+            <option value="">—</option>
+            <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+            <option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Your time to assess <span class="hint">(minutes)</span></label>
+          <input type="number" id="t_manual" min="0" step="0.5" placeholder="e.g. 6" />
+        </div>
+      </div>
+
+      <div class="lock-bar" id="lockBar">
+        <button class="btn primary" id="lockBtn">🔒 Lock assessment &amp; reveal AI output</button>
+        <span class="lock-hint" id="lockHint">You can’t edit Step 1 after locking. Clear the form to start over.</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ STEP 2 ============ -->
+  <section class="card locked" id="aiCard">
+    <div class="veil">
+      <div class="v-inner">
+        <div class="v-ic">🔒</div>
+        <p>Locked until you record your independent assessment above. This keeps the reference standard uncontaminated.</p>
+      </div>
+    </div>
+
+    <div class="card-body">
+      <div class="step-tag"><span class="n">2</span> Shadow output</div>
+      <h2>AI output &amp; your feedback</h2>
+      <p class="lead">Record what the OrthoAI assistant produced for this case, then rate it. The model’s low current accuracy is expected — log exactly what it returned.</p>
+
+      <div class="grid three">
+        <div class="field">
+          <label>AI malocclusion class</label>
+          <select id="ai_class">
+            <option value="">—</option>
+            <option>Class I</option><option>Class II div 1</option>
+            <option>Class II div 2</option><option>Class III</option><option>Unclassifiable</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>AI IOTN — DHC grade</label>
+          <select id="ai_dhc">
+            <option value="">—</option>
+            <option value="1">1 · No need</option><option value="2">2 · Little need</option>
+            <option value="3">3 · Borderline</option><option value="4">4 · Great need</option>
+            <option value="5">5 · Very great need</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>AI IOTN — AC grade</label>
+          <select id="ai_ac">
+            <option value="">—</option>
+            <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+            <option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>AI confidence shown <span class="hint">(%)</span></label>
+          <input type="number" id="ai_conf" min="0" max="100" placeholder="0–100" />
+        </div>
+        <div class="field">
+          <label>AI time-to-assessment <span class="hint">(min, if shown)</span></label>
+          <input type="number" id="t_ai" min="0" step="0.1" placeholder="e.g. 0.5" />
+        </div>
+        <div class="field">
+          <label>AI confidence calibration</label>
+          <select id="calib">
+            <option value="">—</option>
+            <option>Well-calibrated</option><option>Over-confident</option>
+            <option>Under-confident</option><option>N/A</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="small-divider"></div>
+
+      <div class="grid">
+        <div class="field full">
+          <label>Overall, do you agree with the AI?</label>
+          <div class="seg" data-name="agree">
+            <button type="button" data-v="Agree">Agree</button>
+            <button type="button" data-v="Partial">Partial</button>
+            <button type="button" data-v="Disagree">Disagree</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Would you override the AI?</label>
+          <div class="radios">
+            <label class="rad"><input type="radio" name="override" value="Yes" /> Yes</label>
+            <label class="rad"><input type="radio" name="override" value="No" /> No</label>
+          </div>
+        </div>
+        <div class="field">
+          <label>If overriding — why? <span class="hint">(brief)</span></label>
+          <input type="text" id="override_reason" placeholder="e.g. AI missed posterior crossbite" />
+        </div>
+
+        <div class="field full">
+          <label>Clinical usefulness rating <span class="hint">(1 = not useful, 5 = very useful)</span></label>
+          <div class="seg small" data-name="useful">
+            <button type="button" data-v="1">1</button><button type="button" data-v="2">2</button>
+            <button type="button" data-v="3">3</button><button type="button" data-v="4">4</button>
+            <button type="button" data-v="5">5</button>
+          </div>
+        </div>
+
+        <div class="field full">
+          <label>Comments <span class="hint">(failure modes, edge cases, anything notable)</span></label>
+          <textarea id="comment" placeholder="Optional free text…"></textarea>
+        </div>
+      </div>
+
+      <div class="lock-bar actions">
+        <button class="btn primary" id="saveBtn">＋ Save case to pilot database</button>
+        <button class="btn ghost" id="clearBtn">Clear &amp; new case</button>
+        <span class="save-flash" id="flash"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PILOT LOG ============ -->
+  <section class="card log-card">
+    <div class="step-tag" style="color:#9FB6B0"><span class="n" style="background:#E8EFEC;color:var(--ink)">∑</span> Pilot log</div>
+    <h2>Recorded cases</h2>
+    <p class="lead">Live summary from the central pilot database. Export to CSV for the κ / macro-F1 analysis.</p>
+
+    <div class="stats">
+      <div class="stat"><div class="v" id="sN">—</div><div class="k">Cases logged</div></div>
+      <div class="stat"><div class="v" id="sClass">—</div><div class="k">Class agreement</div></div>
+      <div class="stat alert"><div class="v" id="sHigh">—</div><div class="k">High-need (DHC 4–5)</div></div>
+      <div class="stat"><div class="v" id="sUse">—</div><div class="k">Mean usefulness</div></div>
+    </div>
+
+    <div id="logTableWrap"><div class="empty-log">Connect to the server to load cases.</div></div>
+
+    <div class="log-actions">
+      <button class="btn on-dark solid" id="exportBtn">⤓ Export CSV</button>
+      <button class="btn on-dark" id="refreshBtn">↻ Refresh</button>
+    </div>
+
+    <details class="kpi-map">
+      <summary>How each field maps to the 5 pilot KPIs</summary>
+      <ul>
+        <li><b>1 · Diagnostic agreement</b> → clinician vs AI malocclusion class (accuracy, macro-F1, Cohen’s κ)</li>
+        <li><b>2 · Treatment-need agreement</b> → clinician vs AI IOTN DHC (quadratic-weighted κ)</li>
+        <li><b>3 · Revenue / high-need</b> → high-need flag (DHC 4–5) + time fields feed the throughput model</li>
+        <li><b>4 · Efficiency</b> → manual time vs AI time-to-assessment</li>
+        <li><b>5 · Trust &amp; usability</b> → usefulness rating, override rate, confidence calibration</li>
+      </ul>
+    </details>
+  </section>
+
+  <p style="text-align:center;font-size:11.5px;color:var(--muted);margin-top:8px;font-family:'IBM Plex Mono',monospace">
+    OrthoAI shadow-mode pilot · for research/validation use only · not for clinical decision-making
+  </p>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = id => document.getElementById(id);
+
+  /* ---------------- API client ---------------- */
+  const params = new URLSearchParams(window.location.search);
+  const sourceCaseId = params.get("case_id") || params.get("source_case_id");
+  const API_BASE = "/api/v1/clinical";
+  $("sourceCase").textContent = sourceCaseId ? `Case ${sourceCaseId}` : "Case required";
+
+  function discoverToken(){
+    const keys = [
+      "orthoai_access_token", "access_token", "accessToken",
+      "authToken", "token", "jwt"
+    ];
+    for (const store of [window.localStorage, window.sessionStorage]){
+      if (!store) continue;
+      for (const key of keys){
+        try {
+          const value = store.getItem(key);
+          if (value) return value.replace(/^Bearer\s+/i, "");
+        } catch(e){}
+      }
+    }
+    return "";
+  }
+
+  const Api = {
+    token: "",
+    sourceParam(){
+      return `source_case_id=${encodeURIComponent(sourceCaseId)}`;
+    },
+    headers(json = true){
+      const h = {};
+      if (json) h["Content-Type"] = "application/json";
+      if (this.token) h["Authorization"] = `Bearer ${this.token}`;
+      return h;
+    },
+    async req(path, opts = {}){
+      const res = await fetch(path, opts);
+      if (res.status === 204) return null;
+      let body = null;
+      try { body = await res.json(); } catch(e){ /* non-JSON (e.g. CSV) handled elsewhere */ }
+      if (!res.ok){
+        const detail = body && body.detail
+          ? (typeof body.detail === "string" ? body.detail
+             : body.detail.map(d => `${(d.loc||[]).slice(1).join(".")}: ${d.msg}`).join("\n"))
+          : `HTTP ${res.status}`;
+        const err = new Error(detail); err.status = res.status; throw err;
+      }
+      return body;
+    },
+    health(){ return this.req(`${API_BASE}/health?${this.sourceParam()}`); },
+    create(p){ return this.req(`${API_BASE}/cases?${this.sourceParam()}`, {method:"POST", headers:this.headers(), body:JSON.stringify(p)}); },
+    list(limit=20){ return this.req(`${API_BASE}/cases?${this.sourceParam()}&limit=${limit}`, {headers:this.headers(false)}); },
+    stats(){ return this.req(`${API_BASE}/stats?${this.sourceParam()}`, {headers:this.headers(false)}); },
+    del(id){ return this.req(`${API_BASE}/cases/${id}`, {method:"DELETE", headers:this.headers(false)}); },
+    async csv(){
+      const res = await fetch(`${API_BASE}/export.csv?${this.sourceParam()}`, {headers:this.headers(false)});
+      if (!res.ok) throw new Error(`Export failed (HTTP ${res.status})`);
+      return res.blob();
+    }
+  };
+
+  /* ---------------- signed-in session token ---------------- */
+  Api.token = discoverToken();
+  $("sessionToken").value = Api.token;
+  $("keyBtn").addEventListener("click", () => {
+    Api.token = $("sessionToken").value.trim().replace(/^Bearer\s+/i, "");
+    connect();
+  });
+
+  /* ---------------- connection status ---------------- */
+  function setConn(state, text){
+    $("connDot").className = "dot " + state;
+    $("connText").textContent = text;
+  }
+  async function connect(){
+    if (!sourceCaseId){
+      setConn("warn", "Open this feature from a completed OrthoAI diagnosis case.");
+      return;
+    }
+    if (!Api.token){
+      setConn("warn", "Sign in first, or paste the active session token.");
+      return;
+    }
+    setConn("", "Checking server…");
+    try {
+      const h = await Api.health();
+      try {
+        await refresh();
+        setConn("ok", "Connected. Diagnosis complete; clinical validation unlocked.");
+      } catch(e){
+        if (e.status === 401) setConn("warn", "Session expired or token invalid. Sign in again.");
+        else if (e.status === 403) setConn("warn", "Complete the OrthoAI diagnosis before clinical validation.");
+        else setConn("err", "Server online, but data load failed: " + e.message);
+      }
+    } catch(e){
+      if (e.status === 401) setConn("warn", "Session expired or token invalid. Sign in again.");
+      else if (e.status === 403) setConn("warn", "Complete the OrthoAI diagnosis before clinical validation.");
+      else setConn("err", "Cannot reach server — records will NOT be saved. Check deployment/URL.");
+    }
+  }
+
+  /* ---------------- form helpers ---------------- */
+  $("date").value = new Date().toISOString().slice(0,10);
+  const val   = id => $(id).value.trim();
+  const numOr = id => { const v = parseFloat($(id).value); return isNaN(v) ? null : v; };
+  const intOr = id => { const v = parseInt($(id).value, 10); return isNaN(v) ? null : v; };
+  const orNull = s => s === "" ? null : s;
+  const radio = name => { const r = document.querySelector(`input[name="${name}"]:checked`); return r ? r.value : null; };
+  const segValue = name => {
+    const on = document.querySelector(`.seg[data-name="${name}"] [aria-pressed="true"]`);
+    return on ? on.dataset.v : null;
+  };
+  document.querySelectorAll(".seg").forEach(seg => {
+    seg.addEventListener("click", e => {
+      const b = e.target.closest("button"); if (!b) return;
+      seg.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed","false"));
+      b.setAttribute("aria-pressed","true");
+    });
+  });
+
+  /* ---------------- lock mechanism ---------------- */
+  function validateStep1(){
+    const need = [["site","Site code"],["caseId","Case ID"],["m_class","Malocclusion class"],["dhc","IOTN DHC grade"]];
+    const missing = need.filter(([id]) => !val(id));
+    if (missing.length){ alert("Please complete: " + missing.map(m => m[1]).join(", ")); return false; }
+    return true;
+  }
+  $("lockBtn").addEventListener("click", () => {
+    if (!validateStep1()) return;
+    $("step1Fields").classList.add("step1-locked");
+    $("step1Fields").querySelectorAll("input,select").forEach(el => el.setAttribute("disabled","disabled"));
+    $("lockBtn").style.display = "none";
+    $("lockHint").textContent = "🔒 Step 1 locked. AI panel unlocked below ↓";
+    const ai = $("aiCard");
+    ai.classList.remove("locked"); ai.classList.add("reveal-anim");
+    ai.scrollIntoView({behavior:"smooth", block:"start"});
+  });
+
+  function resetForm(keepMeta){
+    const site = val("site"), clin = val("clin");
+    ["caseId","age","t_manual","ai_conf","t_ai","override_reason","comment"].forEach(id => $(id).value = "");
+    ["m_class","dhc","ac","sex","ai_class","ai_dhc","ai_ac","calib"].forEach(id => $(id).value = "");
+    document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-pressed","false"));
+    document.querySelectorAll('input[name="override"]').forEach(r => r.checked = false);
+    $("recOPG").checked = true; $("recPhoto").checked = true; $("recOther").checked = false;
+    $("step1Fields").classList.remove("step1-locked");
+    $("step1Fields").querySelectorAll("input,select").forEach(el => el.removeAttribute("disabled"));
+    $("lockBtn").style.display = "";
+    $("lockHint").textContent = "You can’t edit Step 1 after locking. Clear the form to start over.";
+    $("aiCard").classList.add("locked"); $("aiCard").classList.remove("reveal-anim");
+    if (keepMeta){ $("site").value = site; $("clin").value = clin; }
+    $("date").value = new Date().toISOString().slice(0,10);
+    window.scrollTo({top:0, behavior:"smooth"});
+  }
+  $("clearBtn").addEventListener("click", () => { if (confirm("Clear this case without saving?")) resetForm(true); });
+
+  /* ---------------- payload ---------------- */
+  function payload(){
+    return {
+      site: val("site"), case_id: val("caseId"),
+      assess_date: orNull(val("date")), clinician: orNull(val("clin")),
+      age: intOr("age"), sex: orNull(val("sex")),
+      rec_opg: $("recOPG").checked, rec_photo: $("recPhoto").checked, rec_other: $("recOther").checked,
+      m_class: val("m_class"), dhc: intOr("dhc"), ac: intOr("ac"), t_manual: numOr("t_manual"),
+      ai_class: orNull(val("ai_class")), ai_dhc: intOr("ai_dhc"), ai_ac: intOr("ai_ac"),
+      ai_conf: numOr("ai_conf"), t_ai: numOr("t_ai"),
+      calib: orNull(val("calib")), agree: segValue("agree"),
+      override: radio("override"), override_reason: orNull(val("override_reason")),
+      useful: segValue("useful") ? parseInt(segValue("useful"),10) : null,
+      comment: orNull(val("comment"))
+    };
+  }
+
+  function flash(msg, isErr){
+    const f = $("flash");
+    f.textContent = msg; f.classList.toggle("err", !!isErr); f.classList.add("show");
+    setTimeout(() => f.classList.remove("show"), isErr ? 4000 : 1800);
+  }
+
+  /* ---------------- save ---------------- */
+  $("saveBtn").addEventListener("click", async () => {
+    if ($("aiCard").classList.contains("locked")){ alert("Lock your Step 1 assessment first."); return; }
+    if (!validateStep1()) return;
+    const btn = $("saveBtn"); btn.disabled = true;
+    try {
+      await Api.create(payload());
+      flash("Saved to pilot database ✓");
+      resetForm(true);
+      await refresh();
+    } catch(e){
+      if (e.status === 409)      flash("Duplicate: this case ID already exists for this site.", true);
+      else if (e.status === 401) flash("Not saved — sign in again.", true);
+      else if (e.status === 403) flash("Not saved — complete the OrthoAI diagnosis first.", true);
+      else                       flash("Not saved — " + e.message, true);
+    } finally { btn.disabled = false; }
+  });
+
+  /* ---------------- log rendering ---------------- */
+  const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+  async function refresh(){
+    const [st, lst] = await Promise.all([Api.stats(), Api.list(20)]);
+    $("sN").textContent     = st.n;
+    $("sClass").textContent = st.class_agreement_pct === null ? "—" : st.class_agreement_pct + "%";
+    $("sHigh").textContent  = st.high_need;
+    $("sUse").textContent   = st.mean_useful === null ? "—" : st.mean_useful.toFixed(1);
+
+    const wrap = $("logTableWrap");
+    if (!lst.items.length){
+      wrap.innerHTML = '<div class="empty-log">No cases recorded yet.</div>'; return;
+    }
+    const rows = lst.items.map(c => {
+      const m = c.class_match === true  ? '<span class="pill match">match</span>'
+              : c.class_match === false ? '<span class="pill miss">differ</span>' : "—";
+      return `<tr>
+        <td>${esc(c.case_id)}</td><td>${esc(c.site)}</td>
+        <td>${esc(c.m_class)}</td><td>${esc(c.dhc)}${c.high_need ? " ⚑" : ""}</td>
+        <td>${esc(c.ai_class ?? "—")}</td><td>${esc(c.ai_dhc ?? "—")}</td>
+        <td>${m}</td><td>${esc(c.useful ?? "—")}</td>
+        <td><button class="row-del" data-id="${c.id}" title="Delete record">✕</button></td>
+      </tr>`;
+    }).join("");
+    wrap.innerHTML = `<table>
+      <thead><tr><th>Case</th><th>Site</th><th>Clin. class</th><th>Clin. DHC</th>
+      <th>AI class</th><th>AI DHC</th><th>Class</th><th>Use</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table>
+      ${lst.total > lst.items.length ? `<div class="empty-log">Showing latest ${lst.items.length} of ${lst.total} — full dataset in the CSV export.</div>` : ""}`;
+    wrap.querySelectorAll(".row-del").forEach(b => b.addEventListener("click", async () => {
+      if (!confirm("Delete this case record from the pilot database?")) return;
+      try { await Api.del(b.dataset.id); await refresh(); }
+      catch(e){ alert("Delete failed: " + e.message); }
+    }));
+  }
+
+  $("refreshBtn").addEventListener("click", () => connect());
+  $("exportBtn").addEventListener("click", async () => {
+    try {
+      const blob = await Api.csv();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `orthoai_pilot_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch(e){ alert(e.message); }
+  });
+
+  connect();
+})();
+</script>
+</body>
+</html>

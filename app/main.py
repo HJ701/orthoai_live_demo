@@ -1,9 +1,12 @@
+from pathlib import Path
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from app.config import settings
 from app.database import engine, Base
-from app.api.routes import auth, cases, inference, results
+from app.api.routes import auth, cases, clinical, inference, results
 from app.api.middleware import AuditLoggingMiddleware, setup_rate_limiting
 import uvicorn
 
@@ -95,6 +98,27 @@ app.include_router(
     tags=["results"]
 )
 
+app.include_router(
+    clinical.router,
+    prefix=f"{settings.api_v1_prefix}/clinical",
+    tags=["clinical"]
+)
+
+
+@app.get("/clinical", include_in_schema=False)
+def clinical_entry():
+    return RedirectResponse(url="/clinical/")
+
+
+app.mount(
+    "/clinical",
+    StaticFiles(
+        directory=Path(__file__).resolve().parent.parent / "app_clinicians" / "static",
+        html=True,
+    ),
+    name="clinical",
+)
+
 
 # Store user_id in request state for audit logging
 @app.middleware("http")
@@ -131,4 +155,3 @@ async def add_user_to_request(request: Request, call_next):
 
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
-
