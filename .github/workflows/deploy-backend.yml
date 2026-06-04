@@ -1,0 +1,160 @@
+name: Deploy Backend
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: eu-north-1
+  AWS_ACCOUNT_ID: "100161936735"
+  ECR_REPOSITORY: medical-ai-production-backend
+  ECS_CLUSTER: medical-ai-production-cluster
+  BACKEND_SERVICE: medical-ai-production-backend-service
+  CELERY_SERVICE: medical-ai-production-celery-service
+  MIGRATION_SUBNET: subnet-0e1fe18240b9544fd
+  ECS_SECURITY_GROUP: sg-07796e2d198063258
+
+jobs:
+  deploy:
+    name: Build, Push, and Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        env:
+          IMAGE_URI: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          LATEST_URI: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+        run: |
+          docker build -t "$IMAGE_URI" -t "$LATEST_URI" .
+          docker push "$IMAGE_URI"
+          docker push "$LATEST_URI"
+
+      - name: Register backend task definition
+        id: backend-task
+        env:
+          IMAGE_URI: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition medical-ai-production-backend \
+            --query taskDefinition > current-backend.json
+
+          jq --arg image "$IMAGE_URI" '
+            .containerDefinitions |= map(if .name == "backend" then .image = $image else . end)
+            | {
+                family,
+                taskRoleArn,
+                executionRoleArn,
+                networkMode,
+                containerDefinitions,
+                volumes,
+                placementConstraints,
+                requiresCompatibilities,
+                cpu,
+                memory
+              }
+          ' current-backend.json > backend-task-definition.json
+
+          arn=$(aws ecs register-task-definition \
+            --cli-input-json file://backend-task-definition.json \
+            --query taskDefinition.taskDefinitionArn \
+            --output text)
+
+          echo "arn=$arn" >> "$GITHUB_OUTPUT"
+
+      - name: Run database migrations
+        env:
+          BACKEND_TASK_DEFINITION: ${{ steps.backend-task.outputs.arn }}
+        run: |
+          task_arn=$(aws ecs run-task \
+            --cluster "$ECS_CLUSTER" \
+            --launch-type FARGATE \
+            --task-definition "$BACKEND_TASK_DEFINITION" \
+            --network-configuration "awsvpcConfiguration={subnets=[$MIGRATION_SUBNET],securityGroups=[$ECS_SECURITY_GROUP],assignPublicIp=DISABLED}" \
+            --overrides '{"containerOverrides":[{"name":"backend","command":["alembic","upgrade","head"]}]}' \
+            --query 'tasks[0].taskArn' \
+            --output text)
+
+          aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$task_arn"
+
+          exit_code=$(aws ecs describe-tasks \
+            --cluster "$ECS_CLUSTER" \
+            --tasks "$task_arn" \
+            --query 'tasks[0].containers[0].exitCode' \
+            --output text)
+
+          test "$exit_code" = "0"
+
+      - name: Register celery task definition
+        id: celery-task
+        env:
+          IMAGE_URI: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition medical-ai-production-celery \
+            --query taskDefinition > current-celery.json
+
+          jq --arg image "$IMAGE_URI" '
+            .containerDefinitions |= map(if .name == "celery" then .image = $image else . end)
+            | {
+                family,
+                taskRoleArn,
+                executionRoleArn,
+                networkMode,
+                containerDefinitions,
+                volumes,
+                placementConstraints,
+                requiresCompatibilities,
+                cpu,
+                memory
+              }
+          ' current-celery.json > celery-task-definition.json
+
+          arn=$(aws ecs register-task-definition \
+            --cli-input-json file://celery-task-definition.json \
+            --query taskDefinition.taskDefinitionArn \
+            --output text)
+
+          echo "arn=$arn" >> "$GITHUB_OUTPUT"
+
+      - name: Update ECS services
+        env:
+          BACKEND_TASK_DEFINITION: ${{ steps.backend-task.outputs.arn }}
+          CELERY_TASK_DEFINITION: ${{ steps.celery-task.outputs.arn }}
+        run: |
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$BACKEND_SERVICE" \
+            --task-definition "$BACKEND_TASK_DEFINITION"
+
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$CELERY_SERVICE" \
+            --task-definition "$CELERY_TASK_DEFINITION"
+
+          aws ecs wait services-stable \
+            --cluster "$ECS_CLUSTER" \
+            --services "$BACKEND_SERVICE" "$CELERY_SERVICE"
+
+      - name: Verify API
+        run: |
+          curl --fail --show-error --silent https://api.demo.orthoai.co/health
+          curl --fail --show-error --silent https://api.demo.orthoai.co/ready

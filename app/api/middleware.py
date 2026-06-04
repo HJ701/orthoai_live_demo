@@ -9,8 +9,10 @@ from app.core.audit import log_audit_event
 from app.config import settings
 from typing import Callable
 import time
+import logging
 
 
+logger = logging.getLogger(__name__)
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -20,6 +22,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.calls_per_minute = calls_per_minute
         self.requests = {}  # In production, use Redis
+        self.redis_client = None
+        if settings.rate_limit_storage.lower() == "redis":
+            try:
+                import redis
+
+                self.redis_client = redis.Redis.from_url(
+                    settings.redis_url,
+                    socket_connect_timeout=2,
+                    socket_timeout=2,
+                )
+            except Exception as exc:
+                logger.error("Redis rate limit storage could not be initialized: %s", exc)
     
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         if not settings.rate_limit_enabled:
@@ -32,6 +46,24 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Get client identifier
         client_id = get_remote_address(request)
         current_time = time.time()
+
+        if self.redis_client is not None:
+            key = f"rate-limit:{client_id}:{int(current_time // 60)}"
+            try:
+                request_count = self.redis_client.incr(key)
+                if request_count == 1:
+                    self.redis_client.expire(key, 120)
+                if request_count > self.calls_per_minute:
+                    return JSONResponse(
+                        status_code=429,
+                        content={
+                            "detail": f"Rate limit exceeded. Maximum {self.calls_per_minute} requests per minute.",
+                            "retry_after": 60 - int(current_time % 60),
+                        },
+                    )
+                return await call_next(request)
+            except Exception as exc:
+                logger.error("Redis rate limiting failed; falling back to in-memory storage: %s", exc)
         
         # Clean old entries (simple cleanup)
         if client_id in self.requests:

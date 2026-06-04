@@ -7,5 +7,7 @@ __pycache__/
 venv/
 .env
 .env.*
+.aws-local/
+.merge-backup/
 .DS_Store
 *.log

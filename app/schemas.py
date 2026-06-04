@@ -39,11 +39,19 @@ class UserResponse(BaseModel):
     full_name: Optional[str] = None
     avatar_url: Optional[str] = None
     is_active: bool
+    terms_accepted: bool = False
+    terms_accepted_at: Optional[datetime] = None
     last_login_at: Optional[datetime] = None
     created_at: datetime
     
     class Config:
         from_attributes = True
+
+
+class TermsAcceptanceResponse(BaseModel):
+    message: str
+    terms_accepted: bool
+    terms_accepted_at: datetime
 
 
 # Case Schemas

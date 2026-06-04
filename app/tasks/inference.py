@@ -4,6 +4,7 @@ from app.celery_app import celery_app
 from app.database import SessionLocal
 from app.models import InferenceJob, InferenceResult, ImageEvidence, Finding, Case, Image, JobState
 from app.config import settings
+from app.core.model_inference import predict_case
 import json
 from datetime import datetime
 
@@ -27,8 +28,7 @@ class DatabaseTask(Task):
 @celery_app.task(bind=True, base=DatabaseTask)
 def run_inference(self, job_id: int, case_id: int):
     """
-    Run inference on a case's images
-    This is a placeholder - replace with actual ML model inference
+    Run multimodal OrthoAI inference on a case's images.
     """
     db = self.db
     
@@ -58,60 +58,41 @@ def run_inference(self, job_id: int, case_id: int):
             db.commit()
             return {"error": "No images found"}
         
-        # Simulate inference progress
+        job.progress = 0.25
+        db.commit()
+
         total_images = len(images)
-        findings_list = []
-        confidences = {}
-        per_image_evidence = []
-        evidence_data = []  # Store evidence data to create after result is created
-        
-        for idx, image in enumerate(images):
-            # Simulate processing each image
-            # In production, call your ML model here
-            progress = 0.1 + (idx + 1) / total_images * 0.8
-            job.progress = progress
-            db.commit()
-            
-            # Mock inference results
-            mock_detections = [
-                {"type": "lesion", "confidence": 0.85, "location": "upper_left", "factor": "high"},
-                {"type": "normal", "confidence": 0.92, "location": "center", "factor": "low"}
-            ]
-            
-            mock_confidence = 0.85 + (idx * 0.05) % 0.15
-            
-            # Store evidence data for later creation
-            evidence_data.append({
-                "image_id": image.id,
-                "detections": mock_detections,
-                "confidence": mock_confidence
-            })
-            
-            # Build findings dict for overall findings (backward compatibility)
-            mock_findings = {
-                "image_id": image.id,
-                "detections": mock_detections
-            }
-            findings_list.append(mock_findings)
-            confidences[f"image_{image.id}"] = mock_confidence
-            per_image_evidence.append({
-                "image_id": image.id,
-                "filename": image.filename,
-                "findings": mock_findings,
-                "confidence": mock_confidence
-            })
-        
-        # Create overall findings
+        prediction = predict_case(case.patient_id or f"case-{case.id}", images)
+
+        job.progress = 0.85
+        db.commit()
+
+        confidence = float(prediction.get("confidence", 0.0))
+        predicted_class = str(prediction.get("predicted_class", "unknown"))
+        images_used = prediction.get("images_used", [])
+        confidences = {f"image_{image.id}": confidence for image in images}
+
         overall_findings = {
             "total_images": total_images,
             "processed_at": datetime.utcnow().isoformat(),
-            "findings": findings_list,
+            "prediction": prediction,
+            "findings": [
+                {
+                    "type": predicted_class,
+                    "confidence": confidence,
+                    "probabilities": prediction.get("probabilities", []),
+                }
+            ],
+            "images_used": images_used,
             "model_version": settings.model_version
         }
-        
-        # Create summary
-        summary = f"Processed {total_images} image(s). Found {len(findings_list)} sets of findings with average confidence of {sum(confidences.values()) / len(confidences):.2%}."
-        
+
+        summary = (
+            f"Processed {total_images} image(s). "
+            f"Predicted class: {predicted_class} "
+            f"with {confidence:.2%} confidence."
+        )
+
         # Create inference result first
         result = InferenceResult(
             job_id=job_id,
@@ -122,27 +103,25 @@ def run_inference(self, job_id: int, case_id: int):
         db.add(result)
         db.flush()  # Get the result ID
         
-        # Now create image evidence with Finding records
-        for evidence_info in evidence_data:
+        # Create per-image evidence rows for compatibility with the existing results API.
+        for image in images:
             evidence = ImageEvidence(
                 result_id=result.id,
-                image_id=evidence_info["image_id"],
+                image_id=image.id,
                 findings=None,  # No longer storing JSON findings
-                confidence=evidence_info["confidence"]
+                confidence=confidence
             )
             db.add(evidence)
             db.flush()  # Get the evidence ID
-            
-            # Create Finding records for each detection
-            for detection in evidence_info["detections"]:
-                finding = Finding(
-                    image_evidence_id=evidence.id,
-                    type=detection["type"],
-                    confidence=detection["confidence"],
-                    location=detection.get("location"),
-                    factor=detection.get("factor")
-                )
-                db.add(finding)
+
+            finding = Finding(
+                image_evidence_id=evidence.id,
+                type=predicted_class,
+                confidence=confidence,
+                location=None,
+                factor="multimodal_prediction"
+            )
+            db.add(finding)
         
         # Update job to done
         job.state = JobState.DONE
