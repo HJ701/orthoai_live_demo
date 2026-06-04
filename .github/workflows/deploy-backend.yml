@@ -16,6 +16,9 @@ env:
   CELERY_SERVICE: medical-ai-production-celery-service
   MIGRATION_SUBNET: subnet-0e1fe18240b9544fd
   ECS_SECURITY_GROUP: sg-07796e2d198063258
+  CLINICAL_EFS_ID: fs-07ee7a26f5fa99082
+  CLINICAL_EFS_ACCESS_POINT_ID: fsap-0cad7e12232849bc1
+  CLINICAL_DB_PATH: /mnt/clinical/orthoai_clinical.db
 
 jobs:
   deploy:
@@ -57,8 +60,35 @@ jobs:
             --task-definition medical-ai-production-backend \
             --query taskDefinition > current-backend.json
 
-          jq --arg image "$IMAGE_URI" '
-            .containerDefinitions |= map(if .name == "backend" then .image = $image else . end)
+          jq \
+            --arg image "$IMAGE_URI" \
+            --arg clinicalEfsId "$CLINICAL_EFS_ID" \
+            --arg clinicalAccessPointId "$CLINICAL_EFS_ACCESS_POINT_ID" \
+            --arg clinicalDbPath "$CLINICAL_DB_PATH" '
+            def set_env($name; $value):
+              .environment = ((.environment // []) | map(select(.name != $name)) + [{"name": $name, "value": $value}]);
+            def set_mount($source; $path):
+              .mountPoints = ((.mountPoints // []) | map(select(.sourceVolume != $source)) + [{"sourceVolume": $source, "containerPath": $path, "readOnly": false}]);
+            .containerDefinitions |= map(
+              if .name == "backend" then
+                .image = $image
+                | set_env("ORTHOAI_CLINICAL_DB"; $clinicalDbPath)
+                | set_mount("clinical-data"; "/mnt/clinical")
+              else
+                .
+              end
+            )
+            | .volumes = ((.volumes // []) | map(select(.name != "clinical-data")) + [{
+                "name": "clinical-data",
+                "efsVolumeConfiguration": {
+                  "fileSystemId": $clinicalEfsId,
+                  "transitEncryption": "ENABLED",
+                  "authorizationConfig": {
+                    "accessPointId": $clinicalAccessPointId,
+                    "iam": "DISABLED"
+                  }
+                }
+              }])
             | {
                 family,
                 taskRoleArn,
