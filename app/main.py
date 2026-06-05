@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from app.config import settings
 from app.database import engine, Base
-from app.api.routes import auth, cases, clinical, inference, results
+from app.api.routes import auth, cases, clinical, inference, results, users
 from app.api.middleware import AuditLoggingMiddleware, setup_rate_limiting
 from sqlalchemy import text
 import uvicorn
@@ -107,6 +107,12 @@ app.include_router(
     auth.router,
     prefix=f"{settings.api_v1_prefix}/auth",
     tags=["auth"]
+)
+
+app.include_router(
+    users.router,
+    prefix=f"{settings.api_v1_prefix}/users",
+    tags=["users"]
 )
 
 app.include_router(
