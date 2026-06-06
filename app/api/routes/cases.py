@@ -110,6 +110,31 @@ def create_case(
     return case
 
 
+@router.get("/{case_id}", response_model=CaseResponse)
+def get_case(
+    case_id: int,
+    db: Session = Depends(get_db),
+    case: Case = Depends(get_case_dependency),
+):
+    """Get one case for the current user."""
+    latest_job = db.query(InferenceJob).filter(
+        InferenceJob.case_id == case_id
+    ).order_by(InferenceJob.created_at.desc()).first()
+
+    return CaseResponse(
+        id=case.id,
+        user_id=case.user_id,
+        consent_checked=case.consent_checked,
+        patient_id=case.patient_id,
+        title=case.title,
+        clinic_location=case.clinic_location,
+        note=case.note,
+        tags=case.tags if case.tags else [],
+        status=latest_job.state if latest_job else None,
+        created_at=case.created_at,
+    )
+
+
 @router.post("/{case_id}/images", response_model=ImageUploadResponse)
 def upload_images(
     request: Request,

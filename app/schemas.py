@@ -118,6 +118,8 @@ class InferenceStatusResponse(BaseModel):
     state: JobState
     progress: float
     error_message: Optional[str] = None
+    is_terminal: bool = False
+    can_cancel: bool = False
     created_at: datetime
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
