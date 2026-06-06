@@ -115,6 +115,7 @@ class InferenceResponse(BaseModel):
 
 
 class InferenceStatusResponse(BaseModel):
+    case_id: int
     state: JobState
     progress: float
     error_message: Optional[str] = None
