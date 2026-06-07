@@ -9,7 +9,8 @@ from app.models import Case, Image, InferenceJob, JobState
 from app.schemas import CaseCreate, CaseResponse, ImageUploadResponse, ImageResponse, CaseNoteCreate, CaseNoteResponse
 from app.api.deps import get_current_user_dependency, get_case_dependency
 from app.core.audit import log_audit_event
-from app.core.s3_storage import upload_file_to_s3
+from app.core.s3_storage import delete_file_from_s3, upload_file_to_s3
+from app.celery_app import celery_app
 from app.config import settings
 import logging
 
@@ -108,6 +109,64 @@ def create_case(
     )
     
     return case
+
+
+@router.get("/{case_id}", response_model=CaseResponse)
+def get_case(
+    case_id: int,
+    db: Session = Depends(get_db),
+    case: Case = Depends(get_case_dependency),
+):
+    """Get one case for the current user."""
+    latest_job = db.query(InferenceJob).filter(
+        InferenceJob.case_id == case_id
+    ).order_by(InferenceJob.created_at.desc()).first()
+
+    return CaseResponse(
+        id=case.id,
+        user_id=case.user_id,
+        consent_checked=case.consent_checked,
+        patient_id=case.patient_id,
+        title=case.title,
+        clinic_location=case.clinic_location,
+        note=case.note,
+        tags=case.tags if case.tags else [],
+        status=latest_job.state if latest_job else None,
+        created_at=case.created_at,
+    )
+
+
+@router.delete("/{case_id}", status_code=status.HTTP_200_OK)
+def delete_case(
+    request: Request,
+    case_id: int,
+    db: Session = Depends(get_db),
+    case: Case = Depends(get_case_dependency),
+):
+    """Delete a case owned by the current user, including jobs and uploaded images."""
+    jobs = db.query(InferenceJob).filter(InferenceJob.case_id == case_id).all()
+    for job in jobs:
+        if job.state in [JobState.QUEUED, JobState.RUNNING] and job.celery_task_id:
+            celery_app.control.revoke(job.celery_task_id, terminate=True)
+
+    images = db.query(Image).filter(Image.case_id == case_id).all()
+    for image in images:
+        if image.file_path:
+            delete_file_from_s3(image.file_path)
+
+    log_audit_event(
+        db=db,
+        user_id=case.user_id,
+        action="delete",
+        resource_type="case",
+        resource_id=case_id,
+        ip_address=request.client.host if request.client else None,
+    )
+
+    db.delete(case)
+    db.commit()
+
+    return {"message": "Case deleted successfully", "case_id": case_id}
 
 
 @router.post("/{case_id}/images", response_model=ImageUploadResponse)

@@ -48,6 +48,8 @@ def run_inference(self, job_id: int, case_id: int):
         if not case:
             job.state = JobState.ERROR
             job.error_message = "Case not found"
+            job.progress = 1.0
+            job.completed_at = datetime.utcnow()
             db.commit()
             return {"error": "Case not found"}
         
@@ -55,6 +57,8 @@ def run_inference(self, job_id: int, case_id: int):
         if not images:
             job.state = JobState.ERROR
             job.error_message = "No images found for case"
+            job.progress = 1.0
+            job.completed_at = datetime.utcnow()
             db.commit()
             return {"error": "No images found"}
         
@@ -141,6 +145,8 @@ def run_inference(self, job_id: int, case_id: int):
         if job:
             job.state = JobState.ERROR
             job.error_message = str(e)
+            job.progress = 1.0
+            job.completed_at = datetime.utcnow()
             db.commit()
         return {"error": str(e)}
 

@@ -50,8 +50,16 @@ class UserResponse(BaseModel):
 
 class TermsAcceptanceResponse(BaseModel):
     message: str
+    id: int
+    email: str
+    auth_provider: str
+    full_name: Optional[str] = None
+    avatar_url: Optional[str] = None
+    is_active: bool
     terms_accepted: bool
     terms_accepted_at: datetime
+    last_login_at: Optional[datetime] = None
+    created_at: datetime
 
 
 # Case Schemas
@@ -107,9 +115,12 @@ class InferenceResponse(BaseModel):
 
 
 class InferenceStatusResponse(BaseModel):
+    case_id: int
     state: JobState
     progress: float
     error_message: Optional[str] = None
+    is_terminal: bool = False
+    can_cancel: bool = False
     created_at: datetime
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None

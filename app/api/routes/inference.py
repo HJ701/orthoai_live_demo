@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import InferenceJob, Case, Image, JobState
@@ -10,6 +10,9 @@ from app.core.audit import log_audit_event
 from datetime import datetime
 
 router = APIRouter()
+
+
+TERMINAL_STATES = {JobState.DONE, JobState.ERROR}
 
 
 @router.post("", response_model=InferenceResponse, status_code=status.HTTP_201_CREATED)
@@ -79,6 +82,7 @@ def start_inference(
 @router.get("/{job_id}/status", response_model=InferenceStatusResponse)
 def get_inference_status(
     job_id: int,
+    case_id: int | None = Query(None),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user_dependency)
 ):
@@ -94,14 +98,25 @@ def get_inference_status(
     # Verify case ownership
     if job.case.user_id != current_user.id:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not enough permissions"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found"
         )
+
+    if case_id is not None and job.case_id != case_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found for this case",
+        )
+
+    is_terminal = job.state in TERMINAL_STATES
     
     return InferenceStatusResponse(
+        case_id=job.case_id,
         state=job.state,
-        progress=job.progress,
+        progress=1.0 if is_terminal else job.progress,
         error_message=job.error_message,
+        is_terminal=is_terminal,
+        can_cancel=job.state in [JobState.QUEUED, JobState.RUNNING],
         created_at=job.created_at,
         started_at=job.started_at,
         completed_at=job.completed_at
@@ -111,6 +126,7 @@ def get_inference_status(
 @router.post("/{job_id}/cancel", status_code=status.HTTP_200_OK)
 def cancel_inference(
     job_id: int,
+    case_id: int | None = Query(None),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user_dependency)
 ):
@@ -126,10 +142,23 @@ def cancel_inference(
     # Verify case ownership
     if job.case.user_id != current_user.id:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not enough permissions"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found"
+        )
+
+    if case_id is not None and job.case_id != case_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found for this case",
         )
     
+    if job.state in TERMINAL_STATES:
+        return {
+            "message": f"Inference job is already in terminal state: {job.state.value}",
+            "state": job.state,
+            "can_cancel": False,
+        }
+
     # Only cancel if queued or running
     if job.state not in [JobState.QUEUED, JobState.RUNNING]:
         raise HTTPException(
@@ -143,7 +172,9 @@ def cancel_inference(
     
     job.state = JobState.ERROR
     job.error_message = "Cancelled by user"
+    job.progress = 1.0
+    job.completed_at = datetime.utcnow()
     db.commit()
     
-    return {"message": "Job cancelled successfully"}
+    return {"message": "Job cancelled successfully", "state": job.state, "can_cancel": False}
 
