@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>OrthoAI Demo Console</title>
+<style>
+  :root{
+    --paper:#F6F3EC;
+    --surface:#FBFAF6;
+    --ink:#13302C;
+    --ink-soft:#3C4F4B;
+    --muted:#6E7E79;
+    --line:#D9D3C6;
+    --teal:#0F766E;
+    --teal-deep:#0B5550;
+    --amber:#B45309;
+    --amber-soft:#FBEFE0;
+    --green:#15803D;
+    --red:#9F3B36;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    font-size:15px;
+    line-height:1.5;
+  }
+  .shell{min-height:100vh;display:flex;flex-direction:column}
+  .topbar{
+    background:var(--surface);
+    border-bottom:1px solid var(--line);
+    position:sticky;
+    top:0;
+    z-index:5;
+  }
+  .topbar-inner{
+    max-width:1180px;
+    margin:0 auto;
+    min-height:68px;
+    padding:12px 22px;
+    display:flex;
+    align-items:center;
+    gap:20px;
+  }
+  .brand{display:flex;align-items:center;gap:10px;min-width:170px}
+  .brand-mark{
+    width:34px;
+    height:34px;
+    border-radius:8px;
+    background:var(--ink);
+    color:var(--surface);
+    display:grid;
+    place-items:center;
+    font-weight:800;
+  }
+  .brand-name{font-size:18px;font-weight:800;letter-spacing:0}
+  .brand-name span{color:var(--teal)}
+  .nav{display:flex;gap:8px;align-items:center;flex:1}
+  .nav a,.nav button{
+    border:1px solid transparent;
+    background:transparent;
+    color:var(--ink-soft);
+    font:inherit;
+    font-weight:700;
+    padding:9px 12px;
+    border-radius:8px;
+    text-decoration:none;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .nav a.active,.nav button.active{background:rgba(15,118,110,.1);color:var(--teal-deep);border-color:rgba(15,118,110,.18)}
+  .nav button:disabled{color:var(--muted);cursor:not-allowed;opacity:.6}
+  .session-chip{
+    font-size:12px;
+    color:var(--muted);
+    border:1px solid var(--line);
+    border-radius:999px;
+    padding:6px 10px;
+    white-space:nowrap;
+  }
+  main{max-width:1180px;width:100%;margin:0 auto;padding:26px 22px 60px;display:grid;gap:18px}
+  .notice{
+    background:var(--amber-soft);
+    color:var(--amber);
+    border:1px solid rgba(180,83,9,.22);
+    border-radius:8px;
+    padding:12px 14px;
+    font-size:13px;
+    display:none;
+  }
+  .notice.show{display:block}
+  .grid{display:grid;grid-template-columns:1.1fr .9fr;gap:18px;align-items:start}
+  .panel{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:18px;
+  }
+  .panel h1,.panel h2{margin:0;color:var(--ink);letter-spacing:0}
+  .panel h1{font-size:25px;line-height:1.2}
+  .panel h2{font-size:17px}
+  .lead{margin:8px 0 0;color:var(--ink-soft)}
+  .section-label{
+    font-size:11px;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    color:var(--muted);
+    font-weight:800;
+    margin-bottom:8px;
+  }
+  .fields{display:grid;gap:12px;margin-top:14px}
+  .field{display:grid;gap:6px}
+  label{font-size:12px;font-weight:800;color:var(--ink-soft)}
+  input,textarea{
+    width:100%;
+    border:1px solid var(--line);
+    border-radius:8px;
+    background:white;
+    color:var(--ink);
+    font:inherit;
+    padding:10px 11px;
+  }
+  textarea{min-height:82px;resize:vertical}
+  input:focus,textarea:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 3px rgba(15,118,110,.14)}
+  .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+  .btn{
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:10px 13px;
+    background:white;
+    color:var(--ink-soft);
+    font:inherit;
+    font-weight:800;
+    cursor:pointer;
+    text-decoration:none;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:42px;
+  }
+  .btn.primary{background:var(--teal);border-color:var(--teal);color:white}
+  .btn.primary:hover{background:var(--teal-deep)}
+  .btn:disabled{opacity:.55;cursor:not-allowed}
+  .status-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}
+  .status{
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:12px;
+    background:white;
+  }
+  .status .k{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:800}
+  .status .v{font-weight:900;margin-top:4px}
+  .ok{color:var(--green)}
+  .warn{color:var(--amber)}
+  .err{color:var(--red)}
+  .timeline{display:grid;gap:10px;margin-top:14px}
+  .step{
+    display:grid;
+    grid-template-columns:28px 1fr;
+    gap:10px;
+    align-items:start;
+    color:var(--ink-soft);
+  }
+  .step .n{
+    width:28px;
+    height:28px;
+    border-radius:8px;
+    display:grid;
+    place-items:center;
+    background:rgba(15,118,110,.1);
+    color:var(--teal-deep);
+    font-weight:900;
+  }
+  .step strong{display:block;color:var(--ink)}
+  .divider{height:1px;background:var(--line);margin:16px 0}
+  @media(max-width:840px){
+    .topbar-inner{align-items:flex-start;flex-direction:column}
+    .nav{width:100%;overflow:auto;padding-bottom:2px}
+    .grid{grid-template-columns:1fr}
+    .status-grid{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="brand-mark">O</div>
+        <div class="brand-name">Ortho<span>AI</span></div>
+      </div>
+      <nav class="nav" aria-label="Main menu">
+        <a class="active" href="/">Diagnosis Console</a>
+        <button id="clinicalNav" type="button" disabled>Clinical Validation</button>
+        <a href="/docs">API Docs</a>
+      </nav>
+      <div class="session-chip" id="sessionState">Session not connected</div>
+    </div>
+  </header>
+
+  <main>
+    <div class="notice" id="notice"></div>
+
+    <section class="panel">
+      <div class="section-label">Main demo workflow</div>
+      <h1>Diagnosis first, clinical validation second.</h1>
+      <p class="lead">Use this console as the integrated entry point for the demo. After sign-in and a completed OrthoAI diagnosis, the Clinical Validation menu unlocks for the selected case.</p>
+      <div class="status-grid">
+        <div class="status">
+          <div class="k">Session</div>
+          <div class="v" id="sessionCheck">Waiting for token</div>
+        </div>
+        <div class="status">
+          <div class="k">Selected case</div>
+          <div class="v" id="caseCheck">No case selected</div>
+        </div>
+        <div class="status">
+          <div class="k">Clinical access</div>
+          <div class="v" id="clinicalCheck">Locked</div>
+        </div>
+      </div>
+    </section>
+
+    <div class="grid">
+      <section class="panel">
+        <div class="section-label">Session and case context</div>
+        <h2>Connect a signed-in diagnosis case</h2>
+        <p class="lead">Paste the current JWT only for local/demo testing. In production, the main frontend should store the token and route users here automatically.</p>
+        <div class="fields">
+          <div class="field">
+            <label for="token">Bearer token</label>
+            <input id="token" type="password" autocomplete="off" placeholder="Existing OrthoAI JWT" />
+          </div>
+          <div class="field">
+            <label for="caseId">Completed OrthoAI case ID</label>
+            <input id="caseId" type="number" min="1" inputmode="numeric" placeholder="Example: 42" />
+          </div>
+          <div class="field">
+            <label for="caseNote">Workflow note</label>
+            <textarea id="caseNote" placeholder="Optional: case summary, clinic handoff note, or deployment test note"></textarea>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn primary" id="checkAccess" type="button">Check Clinical Access</button>
+          <button class="btn" id="saveContext" type="button">Save Context</button>
+          <button class="btn" id="clearContext" type="button">Clear</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="section-label">Expected user path</div>
+        <h2>Header menu behavior</h2>
+        <div class="timeline">
+          <div class="step">
+            <div class="n">1</div>
+            <div><strong>Sign in</strong>Use the existing OTP/JWT authentication flow.</div>
+          </div>
+          <div class="step">
+            <div class="n">2</div>
+            <div><strong>Run OrthoAI diagnosis</strong>Create the case, upload records, and wait until inference is complete.</div>
+          </div>
+          <div class="step">
+            <div class="n">3</div>
+            <div><strong>Open Clinical Validation</strong>The menu links to the case-scoped clinical workflow.</div>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="actions">
+          <a class="btn" href="/api/v1/cases">Cases API</a>
+          <a class="btn" href="/api/v1/inference">Inference API</a>
+          <a class="btn" href="/docs">OpenAPI Docs</a>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = id => document.getElementById(id);
+  const TOKEN_KEYS = ["orthoai_access_token","access_token","accessToken","authToken","token","jwt"];
+
+  function showNotice(message, kind){
+    const el = $("notice");
+    el.textContent = message;
+    el.className = "notice show " + (kind || "");
+  }
+
+  function hideNotice(){
+    $("notice").className = "notice";
+    $("notice").textContent = "";
+  }
+
+  function cleanToken(value){
+    return (value || "").trim().replace(/^Bearer\s+/i, "");
+  }
+
+  function discoverToken(){
+    for (const store of [window.localStorage, window.sessionStorage]){
+      if (!store) continue;
+      for (const key of TOKEN_KEYS){
+        try {
+          const value = store.getItem(key);
+          if (value) return cleanToken(value);
+        } catch(e){}
+      }
+    }
+    return "";
+  }
+
+  function saveToken(token){
+    try { window.localStorage.setItem("orthoai_access_token", token); } catch(e){}
+  }
+
+  function setClinicalUnlocked(unlocked){
+    $("clinicalNav").disabled = !unlocked;
+    $("clinicalNav").classList.toggle("active", unlocked);
+    $("clinicalCheck").textContent = unlocked ? "Unlocked" : "Locked";
+    $("clinicalCheck").className = "v " + (unlocked ? "ok" : "warn");
+  }
+
+  function currentContext(){
+    return {
+      token: cleanToken($("token").value),
+      caseId: $("caseId").value.trim(),
+      note: $("caseNote").value.trim()
+    };
+  }
+
+  function refreshState(){
+    const ctx = currentContext();
+    $("sessionState").textContent = ctx.token ? "Session token ready" : "Session not connected";
+    $("sessionCheck").textContent = ctx.token ? "Token present" : "Waiting for token";
+    $("sessionCheck").className = "v " + (ctx.token ? "ok" : "warn");
+    $("caseCheck").textContent = ctx.caseId ? `Case ${ctx.caseId}` : "No case selected";
+    $("caseCheck").className = "v " + (ctx.caseId ? "ok" : "warn");
+    if (!ctx.token || !ctx.caseId) setClinicalUnlocked(false);
+  }
+
+  async function checkAccess(){
+    hideNotice();
+    const ctx = currentContext();
+    refreshState();
+    if (!ctx.token || !ctx.caseId){
+      showNotice("Add both the signed-in session token and completed case ID before opening Clinical Validation.", "warn");
+      return false;
+    }
+    try {
+      const res = await fetch(`/api/v1/clinical/health?source_case_id=${encodeURIComponent(ctx.caseId)}`, {
+        headers: { "Authorization": `Bearer ${ctx.token}` }
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
+      setClinicalUnlocked(true);
+      saveToken(ctx.token);
+      try {
+        window.localStorage.setItem("orthoai_current_case_id", ctx.caseId);
+        window.localStorage.setItem("orthoai_workflow_note", ctx.note);
+      } catch(e){}
+      showNotice("Clinical Validation is unlocked for this completed diagnosis case.", "ok");
+      return true;
+    } catch(err){
+      setClinicalUnlocked(false);
+      showNotice(err.message || "Clinical Validation is still locked for this case.", "warn");
+      return false;
+    }
+  }
+
+  $("checkAccess").addEventListener("click", checkAccess);
+  $("saveContext").addEventListener("click", () => {
+    const ctx = currentContext();
+    if (ctx.token) saveToken(ctx.token);
+    try {
+      if (ctx.caseId) window.localStorage.setItem("orthoai_current_case_id", ctx.caseId);
+      window.localStorage.setItem("orthoai_workflow_note", ctx.note);
+    } catch(e){}
+    refreshState();
+    showNotice("Demo context saved in this browser.", "ok");
+  });
+  $("clearContext").addEventListener("click", () => {
+    $("token").value = "";
+    $("caseId").value = "";
+    $("caseNote").value = "";
+    try {
+      TOKEN_KEYS.forEach(key => window.localStorage.removeItem(key));
+      window.localStorage.removeItem("orthoai_current_case_id");
+      window.localStorage.removeItem("orthoai_workflow_note");
+    } catch(e){}
+    refreshState();
+    hideNotice();
+  });
+  $("clinicalNav").addEventListener("click", async () => {
+    const ok = await checkAccess();
+    if (ok) window.location.href = `/clinical/?case_id=${encodeURIComponent(currentContext().caseId)}`;
+  });
+  ["token","caseId","caseNote"].forEach(id => $(id).addEventListener("input", refreshState));
+
+  $("token").value = discoverToken();
+  try {
+    $("caseId").value = window.localStorage.getItem("orthoai_current_case_id") || "";
+    $("caseNote").value = window.localStorage.getItem("orthoai_workflow_note") || "";
+  } catch(e){}
+  refreshState();
+})();
+</script>
+</body>
+</html>

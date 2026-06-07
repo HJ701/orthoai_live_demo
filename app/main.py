@@ -11,6 +11,8 @@ from app.api.middleware import AuditLoggingMiddleware, setup_rate_limiting
 from sqlalchemy import text
 import uvicorn
 
+APP_STATIC_DIR = Path(__file__).resolve().parent / "static"
+
 # Create database tables (in production, use Alembic migrations)
 # Base.metadata.create_all(bind=engine)
 
@@ -142,7 +144,7 @@ def clinical_entry():
 app.mount(
     "/clinical",
     StaticFiles(
-        directory=Path(__file__).resolve().parent.parent / "app_clinicians" / "static",
+        directory=APP_STATIC_DIR / "clinical",
         html=True,
     ),
     name="clinical",
@@ -180,6 +182,13 @@ async def add_user_to_request(request: Request, call_next):
     
     response = await call_next(request)
     return response
+
+
+app.mount(
+    "/",
+    StaticFiles(directory=APP_STATIC_DIR, html=True),
+    name="orthoai-demo",
+)
 
 
 if __name__ == "__main__":

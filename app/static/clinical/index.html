@@ -25,9 +25,34 @@
   body{
     background:radial-gradient(1200px 500px at 90% -10%, rgba(15,118,110,.06), transparent 60%),var(--paper);
     color:var(--ink);font-family:"Public Sans",system-ui,sans-serif;font-size:15px;line-height:1.5;
-    -webkit-font-smoothing:antialiased;padding:28px 18px 80px;
+    -webkit-font-smoothing:antialiased;padding:0 18px 80px;
   }
   .wrap{max-width:860px;margin:0 auto}
+  .appbar{
+    margin:0 -18px 24px;background:var(--paper-2);border-bottom:1px solid var(--line);
+    position:sticky;top:0;z-index:20;
+  }
+  .appbar-inner{
+    max-width:1180px;margin:0 auto;min-height:68px;padding:12px 22px;
+    display:flex;align-items:center;gap:20px;
+  }
+  .app-brand{display:flex;align-items:center;gap:10px;min-width:170px;text-decoration:none;color:var(--ink)}
+  .app-brand-mark{
+    width:34px;height:34px;border-radius:8px;background:var(--ink);color:var(--paper-2);
+    display:grid;place-items:center;font-weight:800;
+  }
+  .app-brand-name{font-size:18px;font-weight:800}
+  .app-brand-name span{color:var(--teal)}
+  .app-nav{display:flex;gap:8px;align-items:center;flex:1}
+  .app-nav a{
+    border:1px solid transparent;background:transparent;color:var(--ink-soft);
+    font:inherit;font-weight:700;padding:9px 12px;border-radius:8px;text-decoration:none;white-space:nowrap;
+  }
+  .app-nav a.active{background:rgba(15,118,110,.1);color:var(--teal-deep);border-color:rgba(15,118,110,.18)}
+  .app-context{
+    font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--muted);
+    border:1px solid var(--line);border-radius:999px;padding:6px 10px;white-space:nowrap;
+  }
 
   header.masthead{
     border-bottom:1px solid var(--line);padding-bottom:14px;margin-bottom:14px;
@@ -187,14 +212,31 @@
   .small-divider{height:1px;background:var(--line-soft);margin:18px 0}
 
   @media(max-width:620px){
+    .appbar-inner{align-items:flex-start;flex-direction:column}
+    .app-nav{width:100%;overflow:auto;padding-bottom:2px}
     .grid,.grid.three{grid-template-columns:1fr}
     .stats{grid-template-columns:repeat(2,1fr)}
-    body{padding:18px 12px 70px}
+    body{padding:0 12px 70px}
+    .appbar{margin:0 -12px 18px}
     .conn-bar input{width:140px}
   }
 </style>
 </head>
 <body>
+<header class="appbar">
+  <div class="appbar-inner">
+    <a class="app-brand" href="/">
+      <span class="app-brand-mark">O</span>
+      <span class="app-brand-name">Ortho<span>AI</span></span>
+    </a>
+    <nav class="app-nav" aria-label="Main menu">
+      <a href="/">Diagnosis Console</a>
+      <a class="active" href="/clinical/">Clinical Validation</a>
+      <a href="/docs">API Docs</a>
+    </nav>
+    <span class="app-context" id="appContext">Case required</span>
+  </div>
+</header>
 <div class="wrap">
 
   <header class="masthead">
@@ -466,6 +508,7 @@
   const sourceCaseId = params.get("case_id") || params.get("source_case_id");
   const API_BASE = "/api/v1/clinical";
   $("sourceCase").textContent = sourceCaseId ? `Case ${sourceCaseId}` : "Case required";
+  $("appContext").textContent = sourceCaseId ? `Source case ${sourceCaseId}` : "Case required";
 
   function discoverToken(){
     const keys = [

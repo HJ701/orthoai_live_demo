@@ -5,13 +5,14 @@ separate Dockerfile, compose file, or requirements file.
 
 ## Routes
 
+- Main demo console: `/`
 - UI: `/clinical/?case_id=<orthoai_case_id>`
 - API: `/api/v1/clinical/*`
 - OpenAPI docs: `/docs`
 
-The main app menu should link to `/clinical/?case_id=<id>` only after the user
-has signed in and completed an OrthoAI diagnosis for that case. The backend also
-enforces this:
+The main demo console now includes a header/menu entry for Clinical Validation.
+It checks for a signed-in token and a completed source case before sending the
+user to `/clinical/?case_id=<id>`. The backend also enforces this:
 
 - all clinical API routes require the existing OrthoAI bearer token
 - `case_id` must belong to the signed-in user
@@ -58,7 +59,10 @@ Routes scoped to a diagnosis require `source_case_id`:
 
 ## Frontend Token Handling
 
-The HTML page attempts to reuse a token from common browser storage keys:
+The static UI is served from `app/static/`. The clinical page lives at
+`app/static/clinical/index.html`.
+
+Both pages attempt to reuse a token from common browser storage keys:
 
 - `orthoai_access_token`
 - `access_token`
@@ -68,5 +72,5 @@ The HTML page attempts to reuse a token from common browser storage keys:
 - `jwt`
 
 If the main frontend stores the token under a different key, either add that key
-to `app_clinicians/static/index.html` or pass the token through the page's
+to the static HTML token discovery list or pass the token through the page's
 session-token field.
