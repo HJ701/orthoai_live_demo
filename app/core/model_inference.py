@@ -55,7 +55,8 @@ def get_model_runtime():
             "OrthoAI multimodal runtime dependencies are incomplete. "
             "Install torch/torchvision and make sure the serving-time model source is present. "
             "The current runtime requires OrthoPatientFusion/ortho_patient_fusion_core.py plus "
-            "the src modules it imports, including data_pipeline.py and train_exp1_6_malocclusion.py."
+            "the src modules it imports, including data_pipeline.py and train_exp1_6_malocclusion.py. "
+            f"Import error: {exc!r}"
         ) from exc
 
     runtime = OrthoPatientFusionRuntime(model_settings)

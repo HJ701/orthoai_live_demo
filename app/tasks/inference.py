@@ -7,6 +7,10 @@ from app.config import settings
 from app.core.model_inference import predict_case
 import json
 from datetime import datetime
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 
 class DatabaseTask(Task):
@@ -140,6 +144,7 @@ def run_inference(self, job_id: int, case_id: int):
         }
         
     except Exception as e:
+        logger.exception("Inference job %s failed for case %s", job_id, case_id)
         # Update job to error state
         job = db.query(InferenceJob).filter(InferenceJob.id == job_id).first()
         if job:
