@@ -236,6 +236,16 @@
   .summary-box.green .value{color:#16a34a}
   .summary-box.amber .value{color:#f59e0b}
   .summary-box .label{font-size:14px;color:#64748b}
+  .prediction-detail{
+    margin-top:16px;
+    padding:12px 14px;
+    border-radius:12px;
+    background:#f8fafc;
+    border:1px solid var(--line);
+    color:#475569;
+    font-size:13px;
+    font-weight:600;
+  }
   .notice{
     padding:12px 14px;
     border-radius:12px;
@@ -474,6 +484,9 @@
           <div class="label">Images used</div>
         </div>
       </div>
+      <div class="prediction-detail" id="aiPredictionDetail">
+        AI output will appear here after the completed OrthoAI diagnosis is loaded.
+      </div>
       <div class="divider"></div>
       <div class="grid three">
         <div class="field">
@@ -635,11 +648,22 @@
   }
   function extractPrediction(results){
     const prediction = results && results.findings && results.findings.prediction ? results.findings.prediction : {};
+    const rawConfidence = prediction.confidence ?? (
+      Array.isArray(results && results.per_image_evidence) && results.per_image_evidence.length
+        ? results.per_image_evidence[0].confidence
+        : null
+    );
+    const imagesUsed = Array.isArray(prediction.images_used)
+      ? prediction.images_used.length
+      : Array.isArray(results && results.per_image_evidence)
+        ? results.per_image_evidence.length
+        : null;
     return {
       className: mapModelClass(prediction.predicted_class),
       rawClass: prediction.predicted_class ?? "-",
-      confidence: prediction.confidence != null ? Math.round(Number(prediction.confidence) * 100) : null,
-      imagesUsed: Array.isArray(prediction.images_used) ? prediction.images_used.length : null,
+      confidence: rawConfidence != null ? Math.round(Number(rawConfidence) * 100) : null,
+      imagesUsed,
+      summary: results && results.summary ? results.summary : "",
     };
   }
   function hydrateAIFromResults(){
@@ -647,6 +671,11 @@
     $("aiClassSummary").textContent = pred.className || pred.rawClass || "-";
     $("aiConfidenceSummary").textContent = pred.confidence == null ? "-" : `${pred.confidence}%`;
     $("aiImagesSummary").textContent = pred.imagesUsed == null ? "-" : pred.imagesUsed;
+    $("aiPredictionDetail").textContent = pred.summary || (
+      pred.className || pred.rawClass !== "-"
+        ? `Predicted class: ${pred.rawClass}${pred.className ? ` (${pred.className})` : ""}${pred.confidence == null ? "" : ` with ${pred.confidence}% confidence`}.`
+        : "No AI prediction details were returned for this case."
+    );
     if (pred.className) $("ai_class").value = pred.className;
     if (pred.confidence != null) $("ai_conf").value = pred.confidence;
     $("t_ai").value = "0.2";
