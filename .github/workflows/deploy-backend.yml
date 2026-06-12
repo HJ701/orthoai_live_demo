@@ -56,7 +56,7 @@ jobs:
           LATEST_URI: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
         run: |
           docker build -t "$IMAGE_URI" -t "$LATEST_URI" .
-          docker run --rm --user root "$IMAGE_URI" sh -c "pip install pytest && pytest tests/test_clinical_api.py -q"
+          docker run --rm --user root "$IMAGE_URI" sh -c "pip install pytest httpx && pytest tests/test_clinical_api.py -q"
           docker push "$IMAGE_URI"
           docker push "$LATEST_URI"
 
