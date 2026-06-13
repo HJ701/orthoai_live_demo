@@ -17,8 +17,8 @@ env:
   AWS_REGION: eu-north-1
   FRONTEND_DOMAIN: demo.orthoai.co
   CLOUDFRONT_DOMAIN: d2eadfwsh7kyq6.cloudfront.net
-  FRONTEND_S3_BUCKET: ${{ secrets.FRONTEND_S3_BUCKET }}
-  FRONTEND_CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.FRONTEND_CLOUDFRONT_DISTRIBUTION_ID }}
+  FRONTEND_S3_BUCKET: medical-ai-production-web
+  FRONTEND_CLOUDFRONT_DISTRIBUTION_ID: E353NAOAHTD70K
   NEXT_PUBLIC_API_BASE_URL: https://api.demo.orthoai.co
 
 jobs:
