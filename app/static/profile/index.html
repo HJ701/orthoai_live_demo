@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>OrthoAI Profile</title>
+<style>
+  :root{
+    --bg:#f7f8fb;
+    --surface:#ffffff;
+    --ink:#12201d;
+    --text:#263532;
+    --muted:#66736f;
+    --line:#dfe5e2;
+    --teal:#0f766e;
+    --blue:#2563eb;
+    --green:#15803d;
+    --amber:#b45309;
+    --red:#b42318;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    min-height:100vh;
+    background:var(--bg);
+    color:var(--text);
+    font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    font-size:14px;
+    line-height:1.45;
+  }
+  .topbar{
+    background:var(--surface);
+    border-bottom:1px solid var(--line);
+    position:sticky;
+    top:0;
+    z-index:10;
+  }
+  .topbar-inner{
+    max-width:1180px;
+    min-height:64px;
+    margin:0 auto;
+    padding:12px 22px;
+    display:flex;
+    align-items:center;
+    gap:22px;
+  }
+  .brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);font-weight:850;font-size:20px}
+  .brand-mark{width:34px;height:34px;border-radius:8px;background:var(--ink);color:#fff;display:grid;place-items:center}
+  .brand span{color:var(--teal)}
+  .nav{display:flex;align-items:center;justify-content:flex-end;gap:20px;flex:1}
+  .nav a{color:var(--muted);font-weight:700;text-decoration:none;white-space:nowrap}
+  .nav a.active{color:var(--teal)}
+  main{max-width:1180px;margin:0 auto;padding:30px 22px 64px;display:grid;gap:18px}
+  .notice{
+    display:none;
+    border:1px solid rgba(180,83,9,.25);
+    background:#fff7ed;
+    color:var(--amber);
+    border-radius:8px;
+    padding:12px 14px;
+    font-weight:700;
+  }
+  .notice.show{display:block}
+  .panel{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:20px;
+  }
+  .hero{display:grid;grid-template-columns:1fr auto;gap:20px;align-items:start}
+  h1,h2,h3,p{margin:0}
+  h1{font-size:30px;line-height:1.2;color:var(--ink);font-weight:750}
+  h2{font-size:18px;color:var(--ink);margin-bottom:12px}
+  h3{font-size:15px;color:var(--ink)}
+  .muted{color:var(--muted)}
+  .avatar{
+    width:62px;
+    height:62px;
+    border-radius:999px;
+    background:var(--teal);
+    color:#fff;
+    display:grid;
+    place-items:center;
+    font-size:24px;
+    font-weight:850;
+  }
+  .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+  .stat{
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:14px;
+    background:#fbfcfd;
+  }
+  .stat .value{font-size:24px;font-weight:850;color:var(--ink)}
+  .stat .label{color:var(--muted);font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+  .details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:18px}
+  .detail{border-top:1px solid var(--line);padding-top:10px;min-width:0}
+  .detail .label{font-size:12px;color:var(--muted);font-weight:800}
+  .detail .value{font-weight:750;word-break:break-word}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;border-bottom:1px solid var(--line);padding:10px 8px;vertical-align:top}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+  td{color:var(--text)}
+  .pill{display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:850;background:#edf2ff;color:var(--blue)}
+  .pill.done{background:#dcfce7;color:var(--green)}
+  .pill.error{background:#fee2e2;color:var(--red)}
+  .empty{color:var(--muted);padding:10px 0}
+  .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+  .btn{
+    min-height:40px;
+    border-radius:8px;
+    border:1px solid var(--line);
+    background:#fff;
+    color:var(--text);
+    padding:9px 13px;
+    font:inherit;
+    font-weight:800;
+    text-decoration:none;
+    cursor:pointer;
+  }
+  .btn.primary{background:var(--teal);border-color:var(--teal);color:#fff}
+  @media(max-width:860px){
+    .topbar-inner{align-items:flex-start;flex-direction:column}
+    .nav{justify-content:flex-start;overflow:auto;width:100%;padding-bottom:2px}
+    main{padding:24px 14px 52px}
+    .hero,.cols,.details,.grid{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/" aria-label="OrthoAI home">
+        <span class="brand-mark">O</span>
+        Ortho<span>AI</span>
+      </a>
+      <nav class="nav" aria-label="Main menu">
+        <a href="/clinical/">Clinical Validation</a>
+        <a class="active" href="/profile/">Profile</a>
+        <a href="/help/">Help</a>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <div class="notice" id="notice"></div>
+
+    <section class="panel hero">
+      <div>
+        <h1 id="displayName">Profile</h1>
+        <p class="muted" id="emailLine">Connect a signed-in OrthoAI session to load your account.</p>
+        <div class="details">
+          <div class="detail">
+            <div class="label">Email</div>
+            <div class="value" id="emailValue">-</div>
+          </div>
+          <div class="detail">
+            <div class="label">Authentication</div>
+            <div class="value" id="providerValue">-</div>
+          </div>
+          <div class="detail">
+            <div class="label">Created</div>
+            <div class="value" id="createdValue">-</div>
+          </div>
+          <div class="detail">
+            <div class="label">Last login</div>
+            <div class="value" id="lastLoginValue">-</div>
+          </div>
+        </div>
+      </div>
+      <div class="avatar" id="avatar">O</div>
+    </section>
+
+    <section class="grid">
+      <div class="stat"><div class="value" id="caseCount">-</div><div class="label">Cases</div></div>
+      <div class="stat"><div class="value" id="diagnosisCount">-</div><div class="label">Completed diagnoses</div></div>
+      <div class="stat"><div class="value" id="validationCount">-</div><div class="label">Clinical validations</div></div>
+    </section>
+
+    <section class="cols">
+      <div class="panel">
+        <h2>Recent Cases</h2>
+        <div id="casesWrap"><div class="empty">No case activity loaded.</div></div>
+      </div>
+      <div class="panel">
+        <h2>Clinical Validations</h2>
+        <div id="validationsWrap"><div class="empty">No clinical validation activity loaded.</div></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Audit Log</h2>
+      <div id="auditWrap"><div class="empty">No audit events loaded.</div></div>
+      <div class="actions">
+        <button class="btn primary" id="refreshBtn" type="button">Refresh</button>
+      </div>
+    </section>
+  </main>
+<script>
+(() => {
+  "use strict";
+  const $ = id => document.getElementById(id);
+  const TOKEN_KEYS = ["orthoai_access_token","access_token","accessToken","authToken","token","jwt"];
+
+  function cleanToken(value){ return (value || "").trim().replace(/^Bearer\s+/i, ""); }
+  function discoverToken(){
+    for (const store of [window.localStorage, window.sessionStorage]){
+      if (!store) continue;
+      for (const key of TOKEN_KEYS){
+        try {
+          const value = store.getItem(key);
+          if (value) return cleanToken(value);
+        } catch(e){}
+      }
+    }
+    return "";
+  }
+  function showNotice(message){
+    $("notice").textContent = message;
+    $("notice").className = "notice show";
+  }
+  function hideNotice(){
+    $("notice").textContent = "";
+    $("notice").className = "notice";
+  }
+  function escapeHtml(value){
+    return String(value ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  }
+  function fmtDate(value){
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString(undefined, {year:"numeric", month:"short", day:"2-digit", hour:"2-digit", minute:"2-digit"});
+  }
+  function statusPill(status, hasResults){
+    if (!status) return '<span class="pill">new</span>';
+    const normalized = String(status).toLowerCase();
+    const cls = normalized === "done" && hasResults ? " done" : normalized === "error" ? " error" : "";
+    return `<span class="pill${cls}">${escapeHtml(normalized)}</span>`;
+  }
+  async function api(path, token){
+    const res = await fetch(path, {headers: {"Authorization": `Bearer ${token}`}});
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok){
+      throw new Error(body.detail || `HTTP ${res.status}`);
+    }
+    return body;
+  }
+  function renderCases(cases){
+    if (!cases.length){
+      $("casesWrap").innerHTML = '<div class="empty">No cases have been recorded for this account.</div>';
+      return;
+    }
+    const rows = cases.map(item => `<tr>
+      <td>${escapeHtml(item.id)}</td>
+      <td>${escapeHtml(item.patient_id || "-")}</td>
+      <td>${escapeHtml(item.title || "-")}</td>
+      <td>${statusPill(item.status, item.has_results)}</td>
+      <td>${escapeHtml(fmtDate(item.created_at))}</td>
+    </tr>`).join("");
+    $("casesWrap").innerHTML = `<table>
+      <thead><tr><th>ID</th><th>Patient</th><th>Title</th><th>Status</th><th>Created</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  }
+  function renderValidations(items){
+    if (!items.length){
+      $("validationsWrap").innerHTML = '<div class="empty">No clinical validations are linked to this account yet.</div>';
+      return;
+    }
+    const rows = items.map(item => {
+      const match = item.class_match === true ? "match" : item.class_match === false ? "differ" : "-";
+      return `<tr>
+        <td>${escapeHtml(item.case_id)}</td>
+        <td>${escapeHtml(item.site)}</td>
+        <td>${escapeHtml(item.m_class)}</td>
+        <td>${escapeHtml(item.ai_class || "-")}</td>
+        <td>${escapeHtml(match)}</td>
+      </tr>`;
+    }).join("");
+    $("validationsWrap").innerHTML = `<table>
+      <thead><tr><th>Validation</th><th>Site</th><th>Clinical</th><th>AI</th><th>Class</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  }
+  function renderAudit(items){
+    if (!items.length){
+      $("auditWrap").innerHTML = '<div class="empty">No audit events have been recorded for this account.</div>';
+      return;
+    }
+    const rows = items.map(item => {
+      const details = item.details && item.details.path ? item.details.path : item.resource_id || "-";
+      return `<tr>
+        <td>${escapeHtml(fmtDate(item.created_at))}</td>
+        <td>${escapeHtml(item.action)}</td>
+        <td>${escapeHtml(item.resource_type)}</td>
+        <td>${escapeHtml(details)}</td>
+      </tr>`;
+    }).join("");
+    $("auditWrap").innerHTML = `<table>
+      <thead><tr><th>Time</th><th>Action</th><th>Resource</th><th>Detail</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  }
+  function hydrate(data){
+    const user = data.user;
+    const display = user.full_name || user.email;
+    $("displayName").textContent = display;
+    $("emailLine").textContent = user.email;
+    $("emailValue").textContent = user.email;
+    $("providerValue").textContent = user.auth_provider;
+    $("createdValue").textContent = fmtDate(user.created_at);
+    $("lastLoginValue").textContent = fmtDate(user.last_login_at);
+    $("avatar").textContent = (user.full_name || user.email || "O").slice(0,1).toUpperCase();
+    $("caseCount").textContent = data.case_count;
+    $("diagnosisCount").textContent = data.completed_diagnoses;
+    $("validationCount").textContent = data.clinical_validation_count;
+    renderCases(data.cases || []);
+    renderValidations(data.clinical_validations || []);
+    renderAudit(data.audit_logs || []);
+  }
+  async function load(){
+    hideNotice();
+    const token = discoverToken();
+    if (!token){
+      showNotice("No signed-in session token was found. Sign in through OrthoAI first, then return to Profile.");
+      return;
+    }
+    try {
+      const data = await api("/api/v1/users/activity", token);
+      hydrate(data);
+    } catch(e){
+      showNotice(e.message || "Profile activity could not be loaded.");
+    }
+  }
+  $("refreshBtn").addEventListener("click", load);
+  load();
+})();
+</script>
+</body>
+</html>

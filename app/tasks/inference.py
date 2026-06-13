@@ -1,16 +1,45 @@
 from celery import Task
+from celery.signals import worker_process_init, worker_ready
 from sqlalchemy.orm import Session
 from app.celery_app import celery_app
 from app.database import SessionLocal
 from app.models import InferenceJob, InferenceResult, ImageEvidence, Finding, Case, Image, JobState
 from app.config import settings
-from app.core.model_inference import predict_case
+from app.core.model_inference import get_model_runtime, predict_case_with_timings
 import json
 from datetime import datetime
 import logging
+import time
 
 
 logger = logging.getLogger(__name__)
+
+
+_model_preloaded = False
+
+
+def preload_model_runtime() -> None:
+    global _model_preloaded
+    if _model_preloaded or not settings.preload_model_runtime:
+        return
+
+    start = time.perf_counter()
+    try:
+        get_model_runtime()
+        _model_preloaded = True
+        logger.info("Preloaded OrthoAI model runtime in %.3fs", time.perf_counter() - start)
+    except Exception:
+        logger.exception("Failed to preload OrthoAI model runtime")
+
+
+@worker_process_init.connect
+def preload_model_on_worker_process_init(**_kwargs):
+    preload_model_runtime()
+
+
+@worker_ready.connect
+def preload_model_on_worker_ready(**_kwargs):
+    preload_model_runtime()
 
 
 class DatabaseTask(Task):
@@ -70,7 +99,18 @@ def run_inference(self, job_id: int, case_id: int):
         db.commit()
 
         total_images = len(images)
-        prediction = predict_case(case.patient_id or f"case-{case.id}", images)
+        prediction, timings = predict_case_with_timings(
+            case.patient_id or f"case-{case.id}",
+            images,
+        )
+        logger.info(
+            "Inference job %s timings: runtime_load=%.3fs image_load=%.3fs model_predict=%.3fs total=%.3fs",
+            job_id,
+            timings["runtime_load_seconds"],
+            timings["image_load_seconds"],
+            timings["model_predict_seconds"],
+            timings["total_inference_seconds"],
+        )
 
         job.progress = 0.85
         db.commit()
@@ -92,6 +132,7 @@ def run_inference(self, job_id: int, case_id: int):
                 }
             ],
             "images_used": images_used,
+            "timings": timings,
             "model_version": settings.model_version
         }
 
@@ -154,4 +195,3 @@ def run_inference(self, job_id: int, case_id: int):
             job.completed_at = datetime.utcnow()
             db.commit()
         return {"error": str(e)}
-

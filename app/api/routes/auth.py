@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 from datetime import timedelta, datetime
 from app.database import get_db
@@ -9,7 +11,17 @@ from app.core.security import (
     verify_otp
 )
 from app.core.email import send_otp_email_async
-from app.schemas import Token, OTPRequest, OTPResponse, OTPLogin, TermsAcceptanceResponse, UserResponse
+from app.schemas import (
+    SSOProviderInfo,
+    SSOProviderList,
+    Token,
+    OTPRequest,
+    OTPResponse,
+    OTPLogin,
+    TermsAcceptanceResponse,
+    UserCreate,
+    UserResponse,
+)
 from app.config import settings
 from app.api.deps import get_current_user_dependency
 import logging
@@ -17,6 +29,34 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+SSO_PROVIDER_CLIENT_IDS = {
+    "google": "google_oauth_client_id",
+    "microsoft": "microsoft_oauth_client_id",
+    "github": "github_oauth_client_id",
+    "apple": "apple_oauth_client_id",
+}
+
+
+def get_email_user(db: Session, email: str) -> Optional[User]:
+    return db.query(User).filter(
+        User.email == email,
+        User.auth_provider == AuthProvider.EMAIL,
+    ).first()
+
+
+def create_email_user(db: Session, email: str, full_name: Optional[str] = None) -> User:
+    user = User(
+        email=email,
+        auth_provider=AuthProvider.EMAIL,
+        full_name=full_name,
+        is_active=True,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 @router.post("/request-otp", response_model=OTPResponse)
@@ -28,22 +68,12 @@ def request_otp(
     email = otp_request.email.lower().strip()
     
     # Check if user exists with email provider, if not create one
-    user = db.query(User).filter(
-        User.email == email,
-        User.auth_provider == AuthProvider.EMAIL
-    ).first()
+    user = get_email_user(db, email)
     user_id = None
     
     if not user:
         # Auto-create user if doesn't exist
-        user = User(
-            email=email,
-            auth_provider=AuthProvider.EMAIL,
-            is_active=True
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
+        user = create_email_user(db, email)
         user_id = user.id
     else:
         user_id = user.id
@@ -64,6 +94,26 @@ def request_otp(
     )
 
 
+@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+def register(
+    user_data: UserCreate,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """Register an email/OTP user or return the existing email account."""
+    email = user_data.email.lower().strip()
+    user = get_email_user(db, email)
+    if user:
+        response.status_code = status.HTTP_200_OK
+        if user_data.full_name and user.full_name != user_data.full_name:
+            user.full_name = user_data.full_name
+            db.commit()
+            db.refresh(user)
+        return user
+
+    return create_email_user(db, email, user_data.full_name)
+
+
 @router.post("/login", response_model=Token)
 def login(
     login_data: OTPLogin,
@@ -82,10 +132,7 @@ def login(
         )
     
     # Get user (prefer email provider, but allow any provider)
-    user = db.query(User).filter(
-        User.email == email,
-        User.auth_provider == AuthProvider.EMAIL
-    ).first()
+    user = get_email_user(db, email)
     
     if not user:
         raise HTTPException(
@@ -106,10 +153,60 @@ def login(
     # Create JWT token
     access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
     access_token = create_access_token(
-        data={"sub": user.email}, expires_delta=access_token_expires
+        data={
+            "sub": user.email,
+            "uid": user.id,
+            "provider": user.auth_provider.value,
+        },
+        expires_delta=access_token_expires,
     )
     
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.get("/sso/providers", response_model=SSOProviderList)
+def list_sso_providers():
+    """Return SSO providers that are configured for the current deployment."""
+    providers = []
+    for provider, setting_name in SSO_PROVIDER_CLIENT_IDS.items():
+        enabled = bool(getattr(settings, setting_name, ""))
+        reason = None if enabled else "OAuth client ID is not configured for this deployment."
+        providers.append(
+            SSOProviderInfo(
+                provider=provider,
+                enabled=enabled,
+                reason=reason,
+            )
+        )
+    return SSOProviderList(providers=providers)
+
+
+@router.get("/sso/{provider}/login")
+def start_sso_login(provider: str):
+    """Fail explicitly until OAuth code-flow routes are implemented and configured."""
+    normalized = provider.lower().strip()
+    if normalized not in SSO_PROVIDER_CLIENT_IDS:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Unsupported SSO provider",
+        )
+
+    if not getattr(settings, SSO_PROVIDER_CLIENT_IDS[normalized], ""):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                f"{normalized} SSO is not configured on this deployment. "
+                "Use email OTP sign-in or configure the OAuth client before enabling this button."
+            ),
+        )
+
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail=(
+            f"{normalized} SSO has a client ID configured, but the OAuth callback/token "
+            "exchange flow is not implemented in this backend."
+        ),
+    )
 
 
 @router.get("/me", response_model=UserResponse)

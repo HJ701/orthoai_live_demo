@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from pathlib import Path
 import sys
+import time
 from typing import Any, Dict, Iterable, List, Optional
 
 from PIL import Image as PILImage
 
+from app.config import settings as app_settings
 from app.core.s3_storage import download_file_from_s3
 from app.models import Image
 
@@ -80,24 +83,55 @@ def load_runtime_images(images: Iterable[Image]) -> List[Any]:
             "OrthoAI multimodal runtime source is unavailable; cannot construct runtime images."
         ) from exc
 
-    runtime_images: List[Any] = []
-    for image_record in images:
+    image_records = list(images)
+
+    def load_one(image_record: Image) -> Any:
         raw = download_file_from_s3(image_record.file_path)
         with PILImage.open(BytesIO(raw)) as pil_image:
             pil_image.load()
             modality = _infer_modality(image_record.filename, image_record.content_type)
-            runtime_images.append(
-                RuntimeImage(
-                    image=pil_image.copy(),
-                    source=image_record.filename,
-                    modality=modality,
-                    view=_infer_view(image_record.filename, modality) or "",
-                )
+            return RuntimeImage(
+                image=pil_image.copy(),
+                source=image_record.filename,
+                modality=modality,
+                view=_infer_view(image_record.filename, modality) or "",
             )
-    return runtime_images
+
+    worker_count = min(
+        max(app_settings.model_max_download_workers, 1),
+        max(len(image_records), 1),
+    )
+    if worker_count == 1:
+        return [load_one(image_record) for image_record in image_records]
+
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        return list(executor.map(load_one, image_records))
+
+
+def predict_case_with_timings(patient_id: str, images: Iterable[Image]) -> tuple[Dict[str, Any], Dict[str, float]]:
+    runtime_start = time.perf_counter()
+    runtime = get_model_runtime()
+    runtime_seconds = time.perf_counter() - runtime_start
+
+    image_start = time.perf_counter()
+    runtime_images = load_runtime_images(images)
+    image_seconds = time.perf_counter() - image_start
+
+    predict_start = time.perf_counter()
+    prediction = runtime.predict(patient_id, runtime_images)
+    predict_seconds = time.perf_counter() - predict_start
+
+    return prediction, {
+        "runtime_load_seconds": round(runtime_seconds, 3),
+        "image_load_seconds": round(image_seconds, 3),
+        "model_predict_seconds": round(predict_seconds, 3),
+        "total_inference_seconds": round(
+            runtime_seconds + image_seconds + predict_seconds,
+            3,
+        ),
+    }
 
 
 def predict_case(patient_id: str, images: Iterable[Image]) -> Dict[str, Any]:
-    runtime = get_model_runtime()
-    runtime_images = load_runtime_images(images)
-    return runtime.predict(patient_id, runtime_images)
+    prediction, _timings = predict_case_with_timings(patient_id, images)
+    return prediction

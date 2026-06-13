@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from app.models import JobState
@@ -30,6 +30,7 @@ class OTPLogin(BaseModel):
 
 class UserCreate(BaseModel):
     email: EmailStr
+    full_name: Optional[str] = None
 
 
 class UserResponse(BaseModel):
@@ -60,6 +61,58 @@ class TermsAcceptanceResponse(BaseModel):
     terms_accepted_at: datetime
     last_login_at: Optional[datetime] = None
     created_at: datetime
+
+
+class SSOProviderInfo(BaseModel):
+    provider: str
+    enabled: bool
+    reason: Optional[str] = None
+
+
+class SSOProviderList(BaseModel):
+    providers: List[SSOProviderInfo]
+
+
+class AuditLogResponse(BaseModel):
+    id: int
+    action: str
+    resource_type: str
+    resource_id: Optional[int] = None
+    details: Dict[str, Any] = Field(default_factory=dict)
+    ip_address: Optional[str] = None
+    created_at: datetime
+
+
+class ActivityCaseSummary(BaseModel):
+    id: int
+    patient_id: Optional[str] = None
+    title: Optional[str] = None
+    status: Optional[JobState] = None
+    has_results: bool = False
+    created_at: datetime
+
+
+class ActivityClinicalValidationSummary(BaseModel):
+    id: int
+    orthoai_case_id: int
+    site: str
+    case_id: str
+    m_class: str
+    dhc: int
+    ai_class: Optional[str] = None
+    ai_dhc: Optional[int] = None
+    class_match: Optional[bool] = None
+    created_at: str
+
+
+class UserActivityResponse(BaseModel):
+    user: UserResponse
+    case_count: int
+    completed_diagnoses: int
+    clinical_validation_count: int
+    cases: List[ActivityCaseSummary]
+    clinical_validations: List[ActivityClinicalValidationSummary]
+    audit_logs: List[AuditLogResponse]
 
 
 # Case Schemas
@@ -121,6 +174,9 @@ class InferenceStatusResponse(BaseModel):
     error_message: Optional[str] = None
     is_terminal: bool = False
     can_cancel: bool = False
+    queue_seconds: Optional[float] = None
+    run_seconds: Optional[float] = None
+    total_seconds: Optional[float] = None
     created_at: datetime
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -158,4 +214,3 @@ class CaseNoteResponse(BaseModel):
     
     class Config:
         from_attributes = True
-

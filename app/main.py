@@ -173,10 +173,21 @@ async def add_user_to_request(request: Request, call_next):
             try:
                 from jose import jwt
                 payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
-                email = payload.get("sub")  # Now using email as subject
-                if email:
+                email = payload.get("sub")
+                user_id = payload.get("uid")
+                if user_id is not None:
                     from app.models import User
-                    user = db.query(User).filter(User.email == email).first()
+                    user = db.query(User).filter(User.id == int(user_id)).first()
+                    if user:
+                        request.state.user_id = user.id
+                elif email:
+                    from app.models import AuthProvider, User
+                    user = db.query(User).filter(
+                        User.email == email,
+                        User.auth_provider == AuthProvider.EMAIL,
+                    ).first()
+                    if not user:
+                        user = db.query(User).filter(User.email == email).first()
                     if user:
                         request.state.user_id = user.id
             except Exception:

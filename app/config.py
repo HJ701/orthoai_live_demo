@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     model_version: str = "v1.0.0"
     upload_dir: str = "./uploads"
     max_upload_size_mb: int = 50
+    preload_model_runtime: bool = True
+    model_max_download_workers: int = 4
     
     # PDF Signing
     pdf_signing_key_path: Optional[str] = None
@@ -43,6 +45,13 @@ class Settings(BaseSettings):
     mailgun_api_key: str = ""
     mailgun_domain: str = ""
     mailgun_from_email: str = ""
+
+    # SSO/OAuth provider client IDs. Callback/client-secret handling is not
+    # enabled until the OAuth code flow is implemented end to end.
+    google_oauth_client_id: str = ""
+    microsoft_oauth_client_id: str = ""
+    github_oauth_client_id: str = ""
+    apple_oauth_client_id: str = ""
     
     # Rate Limiting
     rate_limit_enabled: bool = True
@@ -99,4 +108,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-

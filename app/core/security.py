@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 import random
 from app.config import settings
 from app.database import get_db
-from app.models import User, OTP
+from app.models import AuthProvider, User, OTP
 from app.schemas import TokenData
 
 security = HTTPBearer()
@@ -87,13 +87,26 @@ def get_current_user(
     try:
         token = credentials.credentials
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
-        email: str = payload.get("sub")  # Using email as subject
-        if email is None:
+        email: str = payload.get("sub")
+        user_id = payload.get("uid")
+        if email is None and user_id is None:
             raise credentials_exception
     except JWTError:
         raise credentials_exception
     
-    user = db.query(User).filter(User.email == email).first()
+    user = None
+    if user_id is not None:
+        try:
+            user = db.query(User).filter(User.id == int(user_id)).first()
+        except (TypeError, ValueError):
+            user = None
+    if user is None and email:
+        user = db.query(User).filter(
+            User.email == email,
+            User.auth_provider == AuthProvider.EMAIL,
+        ).first()
+    if user is None and email:
+        user = db.query(User).filter(User.email == email).first()
     if user is None:
         raise credentials_exception
     return user
@@ -106,4 +119,3 @@ def get_current_active_user(
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
-
