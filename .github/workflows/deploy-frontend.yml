@@ -1,0 +1,110 @@
+name: Deploy Frontend
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "frontend/**"
+      - ".github/workflows/deploy-frontend.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: eu-north-1
+  FRONTEND_DOMAIN: demo.orthoai.co
+  NEXT_PUBLIC_API_BASE_URL: https://api.demo.orthoai.co
+
+jobs:
+  deploy:
+    name: Build and Deploy Static Frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Validate frontend
+        working-directory: frontend
+        run: |
+          npm run lint
+          npm run typecheck
+
+      - name: Build static export
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_BASE_URL: ${{ env.NEXT_PUBLIC_API_BASE_URL }}
+        run: npm run build
+
+      - name: Resolve CloudFront distribution and S3 bucket
+        id: target
+        env:
+          FRONTEND_DOMAIN: ${{ env.FRONTEND_DOMAIN }}
+        run: |
+          aws cloudfront list-distributions > distributions.json
+
+          distribution_id=$(jq -r --arg domain "$FRONTEND_DOMAIN" '
+            .DistributionList.Items[]
+            | select((.Aliases.Items // []) | index($domain))
+            | .Id
+          ' distributions.json | head -n 1)
+
+          if [ -z "$distribution_id" ] || [ "$distribution_id" = "null" ]; then
+            echo "No CloudFront distribution found for $FRONTEND_DOMAIN" >&2
+            exit 1
+          fi
+
+          origin_domain=$(jq -r --arg id "$distribution_id" '
+            .DistributionList.Items[]
+            | select(.Id == $id)
+            | .Origins.Items[0].DomainName
+          ' distributions.json)
+
+          bucket=$(printf '%s' "$origin_domain" | sed -E 's#\\.s3[.-][a-z0-9-]+\\.amazonaws\\.com$##; s#\\.s3\\.amazonaws\\.com$##')
+
+          if [ -z "$bucket" ] || [ "$bucket" = "$origin_domain" ]; then
+            echo "Could not infer S3 bucket from CloudFront origin: $origin_domain" >&2
+            exit 1
+          fi
+
+          echo "distribution_id=$distribution_id" >> "$GITHUB_OUTPUT"
+          echo "bucket=$bucket" >> "$GITHUB_OUTPUT"
+          echo "Resolved distribution $distribution_id and bucket $bucket"
+
+      - name: Sync static assets to S3
+        working-directory: frontend
+        env:
+          BUCKET: ${{ steps.target.outputs.bucket }}
+        run: |
+          aws s3 sync out/ "s3://$BUCKET/" \
+            --delete \
+            --cache-control "public,max-age=0,must-revalidate"
+
+      - name: Invalidate CloudFront
+        env:
+          DISTRIBUTION_ID: ${{ steps.target.outputs.distribution_id }}
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "$DISTRIBUTION_ID" \
+            --paths "/*"
