@@ -16,6 +16,7 @@ permissions:
 env:
   AWS_REGION: eu-north-1
   FRONTEND_DOMAIN: demo.orthoai.co
+  CLOUDFRONT_DOMAIN: d2eadfwsh7kyq6.cloudfront.net
   NEXT_PUBLIC_API_BASE_URL: https://api.demo.orthoai.co
 
 jobs:
@@ -61,12 +62,13 @@ jobs:
         id: target
         env:
           FRONTEND_DOMAIN: ${{ env.FRONTEND_DOMAIN }}
+          CLOUDFRONT_DOMAIN: ${{ env.CLOUDFRONT_DOMAIN }}
         run: |
           aws cloudfront list-distributions > distributions.json
 
-          distribution_id=$(jq -r --arg domain "$FRONTEND_DOMAIN" '
+          distribution_id=$(jq -r --arg domain "$FRONTEND_DOMAIN" --arg cf_domain "$CLOUDFRONT_DOMAIN" '
             .DistributionList.Items[]
-            | select((.Aliases.Items // []) | index($domain))
+            | select(((.Aliases.Items // []) | index($domain)) or (.DomainName == $cf_domain))
             | .Id
           ' distributions.json | head -n 1)
 
@@ -78,10 +80,13 @@ jobs:
           origin_domain=$(jq -r --arg id "$distribution_id" '
             .DistributionList.Items[]
             | select(.Id == $id)
-            | .Origins.Items[0].DomainName
+            | .Origins.Items[]
+            | select(.DomainName | test("\\.s3[.-]|\\.s3-website[.-]"))
+            | .DomainName
           ' distributions.json)
 
-          bucket=$(printf '%s' "$origin_domain" | sed -E 's#\\.s3[.-][a-z0-9-]+\\.amazonaws\\.com$##; s#\\.s3\\.amazonaws\\.com$##')
+          origin_domain=$(printf '%s\n' "$origin_domain" | head -n 1)
+          bucket=$(printf '%s' "$origin_domain" | sed -E 's#\\.s3-website[.-][a-z0-9-]+\\.amazonaws\\.com$##; s#\\.s3[.-][a-z0-9-]+\\.amazonaws\\.com$##; s#\\.s3\\.amazonaws\\.com$##')
 
           if [ -z "$bucket" ] || [ "$bucket" = "$origin_domain" ]; then
             echo "Could not infer S3 bucket from CloudFront origin: $origin_domain" >&2
