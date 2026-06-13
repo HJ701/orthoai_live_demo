@@ -17,6 +17,8 @@ env:
   AWS_REGION: eu-north-1
   FRONTEND_DOMAIN: demo.orthoai.co
   CLOUDFRONT_DOMAIN: d2eadfwsh7kyq6.cloudfront.net
+  FRONTEND_S3_BUCKET: ${{ secrets.FRONTEND_S3_BUCKET }}
+  FRONTEND_CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.FRONTEND_CLOUDFRONT_DISTRIBUTION_ID }}
   NEXT_PUBLIC_API_BASE_URL: https://api.demo.orthoai.co
 
 jobs:
@@ -63,7 +65,20 @@ jobs:
         env:
           FRONTEND_DOMAIN: ${{ env.FRONTEND_DOMAIN }}
           CLOUDFRONT_DOMAIN: ${{ env.CLOUDFRONT_DOMAIN }}
+          FRONTEND_S3_BUCKET: ${{ env.FRONTEND_S3_BUCKET }}
+          FRONTEND_CLOUDFRONT_DISTRIBUTION_ID: ${{ env.FRONTEND_CLOUDFRONT_DISTRIBUTION_ID }}
         run: |
+          if [ -n "$FRONTEND_S3_BUCKET" ] && [ -n "$FRONTEND_CLOUDFRONT_DISTRIBUTION_ID" ]; then
+            echo "distribution_id=$FRONTEND_CLOUDFRONT_DISTRIBUTION_ID" >> "$GITHUB_OUTPUT"
+            echo "bucket=$FRONTEND_S3_BUCKET" >> "$GITHUB_OUTPUT"
+            echo "Using explicit frontend deployment target from GitHub secrets."
+            exit 0
+          fi
+
+          if [ -n "$FRONTEND_S3_BUCKET" ] || [ -n "$FRONTEND_CLOUDFRONT_DISTRIBUTION_ID" ]; then
+            echo "Both FRONTEND_S3_BUCKET and FRONTEND_CLOUDFRONT_DISTRIBUTION_ID must be set to use explicit deployment targets. Falling back to discovery." >&2
+          fi
+
           aws cloudfront list-distributions > distributions.json
 
           distribution_id=$(jq -r --arg domain "$FRONTEND_DOMAIN" --arg cf_domain "$CLOUDFRONT_DOMAIN" '
