@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     
     # Database - Read from .env file
     database_url: str = "postgresql://user:password@localhost:5432/medical_ai_db"
+    auto_create_tables: bool = False
     
     # JWT - Read from .env file
     secret_key: str = "dev-secret-key-change-in-production"
@@ -22,6 +23,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     celery_broker_url: str = "redis://localhost:6379/0"
     celery_result_backend: str = "redis://localhost:6379/0"
+    celery_task_always_eager: bool = False
     
     # Application
     api_v1_prefix: str = "/api/v1"
@@ -30,6 +32,9 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = 50
     preload_model_runtime: bool = True
     model_max_download_workers: int = 4
+    dev_mock_inference: bool = False
+    dev_expose_otp: bool = False
+    enable_local_storage_fallback: bool = True
     
     # PDF Signing
     pdf_signing_key_path: Optional[str] = None

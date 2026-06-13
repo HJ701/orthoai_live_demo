@@ -20,6 +20,7 @@ class OTPRequest(BaseModel):
 
 class OTPResponse(BaseModel):
     message: str
+    dev_otp: Optional[str] = None
     # Note: In production, OTP should be sent via email/SMS, not returned in response
 
 

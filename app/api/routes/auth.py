@@ -90,7 +90,12 @@ def request_otp(
     send_otp_email_async(email, otp_code)
     
     return OTPResponse(
-        message=f"OTP sent to {email}"
+        message=f"OTP sent to {email}",
+        dev_otp=(
+            otp_code
+            if settings.environment.lower() == "development" and settings.dev_expose_otp
+            else None
+        ),
     )
 
 

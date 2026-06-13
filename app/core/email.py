@@ -60,12 +60,19 @@ def send_otp_email_async(email: str, otp_code: str):
     Returns:
         Celery AsyncResult object or result of synchronous send if Celery unavailable
     """
+    if settings.environment.lower() == "development" and settings.dev_expose_otp:
+        logger.info("Skipping OTP email dispatch for %s because DEV_EXPOSE_OTP is enabled", email)
+        return None
+
     celery_app = _get_celery_app()
     if celery_app is None:
         # Fallback to synchronous sending if Celery is not available
         logger.warning("Celery app not available, falling back to synchronous email sending")
         return send_otp_email(email, otp_code)
     
-    # Use send_task with task name to avoid circular import
-    return celery_app.send_task("send_otp_email_task", args=[email, otp_code])
-
+    try:
+        # Use send_task with task name to avoid circular import
+        return celery_app.send_task("send_otp_email_task", args=[email, otp_code])
+    except Exception as exc:
+        logger.warning("Celery email dispatch failed; falling back to synchronous send: %s", exc)
+        return send_otp_email(email, otp_code)

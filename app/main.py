@@ -22,6 +22,12 @@ app = FastAPI(
     version="1.0.0"
 )
 
+
+@app.on_event("startup")
+def create_tables_for_local_demo():
+    if settings.auto_create_tables:
+        Base.metadata.create_all(bind=engine)
+
 # CORS middleware - Configure via CORS_ORIGINS in .env
 # For development: CORS_ORIGINS=*
 # For production: CORS_ORIGINS=http://localhost:3000,https://yourdomain.com

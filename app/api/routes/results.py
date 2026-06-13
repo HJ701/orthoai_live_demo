@@ -129,7 +129,7 @@ def download_pdf_summary(
     # Get evidence and build data structures
     evidence_records = db.query(ImageEvidence).filter(ImageEvidence.result_id == result.id).all()
     
-    findings = json.loads(result.findings) if result.findings else {}
+    findings_dict = json.loads(result.findings) if result.findings else {}
     confidences = {f"image_{e.image_id}": e.confidence for e in evidence_records}
     
     per_image_evidence = []
@@ -140,7 +140,7 @@ def download_pdf_summary(
         findings_records = db.query(Finding).filter(Finding.image_evidence_id == evidence.id).all()
         
         # Build findings dictionary from Finding records
-        findings = {
+        evidence_findings = {
             "image_id": evidence.image_id,
             "detections": [
                 {
@@ -156,7 +156,7 @@ def download_pdf_summary(
         per_image_evidence.append({
             "image_id": evidence.image_id,
             "filename": image.filename if image else "unknown",
-            "findings": findings,
+            "findings": evidence_findings,
             "confidence": evidence.confidence
         })
     
@@ -164,10 +164,25 @@ def download_pdf_summary(
     pdf_buffer = generate_pdf_summary(
         case_id=case_id,
         model_version=result.model_version,
-        findings=findings,
+        findings=findings_dict,
         summary=result.summary or "",
         confidences=confidences,
-        per_image_evidence=per_image_evidence
+        per_image_evidence=per_image_evidence,
+        case_metadata={
+            "title": case.title,
+            "patient_id": case.patient_id,
+            "clinic_location": case.clinic_location,
+            "note": case.note,
+            "tags": case.tags,
+            "created_at": case.created_at,
+        },
+        job_metadata={
+            "job_id": job.id,
+            "state": job.state.value if hasattr(job.state, "value") else str(job.state),
+            "created_at": job.created_at,
+            "started_at": job.started_at,
+            "completed_at": job.completed_at,
+        },
     )
     
     # Sign PDF
@@ -190,4 +205,3 @@ def download_pdf_summary(
             "Content-Disposition": f"attachment; filename=case_{case_id}_summary.pdf"
         }
     )
-

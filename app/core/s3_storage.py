@@ -2,12 +2,14 @@ import boto3
 from botocore.exceptions import ClientError, BotoCoreError
 from typing import BinaryIO, Optional
 import logging
+from pathlib import Path
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 # Global S3 client (initialized lazily)
 _s3_client = None
+LOCAL_PREFIX = "local://"
 
 
 def get_s3_client():
@@ -54,13 +56,27 @@ def upload_file_to_s3(
         ClientError: If S3 upload fails
         ValueError: If bucket name is not configured
     """
-    if not settings.aws_s3_bucket_name:
-        raise ValueError("AWS_S3_BUCKET_NAME is not configured")
-    
     # Generate S3 key: cases/{case_id}/{image_id}_{filename}
     # Sanitize filename to avoid issues with special characters
     safe_filename = filename.replace(" ", "_")
     s3_key = f"cases/{case_id}/{image_id}_{safe_filename}"
+
+    if not settings.aws_s3_bucket_name:
+        if (
+            settings.environment.lower() != "production"
+            and settings.enable_local_storage_fallback
+        ):
+            local_path = Path(settings.upload_dir) / s3_key
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            with local_path.open("wb") as output:
+                while True:
+                    chunk = file_obj.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    output.write(chunk)
+            logger.info("Stored uploaded file locally: %s", local_path)
+            return f"{LOCAL_PREFIX}{s3_key}"
+        raise ValueError("AWS_S3_BUCKET_NAME is not configured")
     
     try:
         s3_client = get_s3_client()
@@ -130,6 +146,10 @@ def download_file_from_s3(s3_key: str) -> bytes:
         ValueError: If bucket name is not configured
         ClientError/BotoCoreError: If S3 download fails
     """
+    if s3_key.startswith(LOCAL_PREFIX):
+        local_path = Path(settings.upload_dir) / s3_key[len(LOCAL_PREFIX):]
+        return local_path.read_bytes()
+
     if not settings.aws_s3_bucket_name:
         raise ValueError("AWS_S3_BUCKET_NAME is not configured")
 
@@ -158,6 +178,15 @@ def delete_file_from_s3(s3_key: str) -> bool:
     Returns:
         True if deletion succeeded, False otherwise
     """
+    if s3_key.startswith(LOCAL_PREFIX):
+        local_path = Path(settings.upload_dir) / s3_key[len(LOCAL_PREFIX):]
+        try:
+            local_path.unlink(missing_ok=True)
+            return True
+        except Exception as e:
+            logger.error("Failed to delete local uploaded file %s: %s", local_path, e)
+            return False
+
     if not settings.aws_s3_bucket_name:
         logger.warning("AWS_S3_BUCKET_NAME is not configured, cannot delete from S3")
         return False
@@ -193,4 +222,3 @@ def get_s3_url(s3_key: str) -> str:
     
     # Return standard S3 URL format
     return f"https://{settings.aws_s3_bucket_name}.s3.{settings.aws_s3_region}.amazonaws.com/{s3_key}"
-

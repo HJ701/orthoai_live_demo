@@ -42,6 +42,45 @@ def preload_model_on_worker_ready(**_kwargs):
     preload_model_runtime()
 
 
+def mock_prediction(patient_id: str, images: list[Image]) -> tuple[dict, dict]:
+    start = time.perf_counter()
+    class_names = ["Class I", "Class II div 1", "Class III"]
+    predicted_index = len(images) % len(class_names)
+    confidence = 0.82
+    prediction = {
+        "patient_id": patient_id,
+        "predicted_class": class_names[predicted_index],
+        "predicted_index": predicted_index,
+        "confidence": confidence,
+        "probabilities": [
+            {
+                "class_name": class_name,
+                "probability": confidence if index == predicted_index else round((1 - confidence) / 2, 3),
+            }
+            for index, class_name in enumerate(class_names)
+        ],
+        "images_used": [
+            {
+                "source": image.filename,
+                "modality": "xray" if "opg" in image.filename.lower() else "rgb",
+                "view": "opg" if "opg" in image.filename.lower() else "frontal",
+            }
+            for image in images
+        ],
+        "model": {
+            "experiment_id": "local-demo",
+            "experiment_name": "Mock OrthoAI Runtime",
+            "device": "cpu",
+        },
+    }
+    return prediction, {
+        "runtime_load_seconds": 0.0,
+        "image_load_seconds": 0.0,
+        "model_predict_seconds": round(time.perf_counter() - start, 3),
+        "total_inference_seconds": round(time.perf_counter() - start, 3),
+    }
+
+
 class DatabaseTask(Task):
     """Custom task class that handles database sessions"""
     _db = None
@@ -99,10 +138,13 @@ def run_inference(self, job_id: int, case_id: int):
         db.commit()
 
         total_images = len(images)
-        prediction, timings = predict_case_with_timings(
-            case.patient_id or f"case-{case.id}",
-            images,
-        )
+        if settings.dev_mock_inference and settings.environment.lower() != "production":
+            prediction, timings = mock_prediction(case.patient_id or f"case-{case.id}", images)
+        else:
+            prediction, timings = predict_case_with_timings(
+                case.patient_id or f"case-{case.id}",
+                images,
+            )
         logger.info(
             "Inference job %s timings: runtime_load=%.3fs image_load=%.3fs model_predict=%.3fs total=%.3fs",
             job_id,

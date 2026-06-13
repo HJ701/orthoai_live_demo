@@ -148,7 +148,7 @@ def init_clinical_db() -> None:
 
 def get_clinical_db() -> Iterator[sqlite3.Connection]:
     init_clinical_db()
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     try:
         yield conn
