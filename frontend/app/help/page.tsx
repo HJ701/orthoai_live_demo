@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ChevronDown, HelpCircle, LockKeyhole, Mail, MapPin, ShieldCheck } from "lucide-react";
-import { Button, Card, cn } from "@/components/ui";
+import { Card, cn } from "@/components/ui";
 
 const faqs = [
   {
@@ -41,7 +41,19 @@ const faqs = [
 
 export default function HelpPage() {
   const [open, setOpen] = useState(0);
-  const mailto = "mailto:Info@orthoai.co?subject=OrthoAI%20Demo%20Support";
+  const [supportCopied, setSupportCopied] = useState(false);
+  const supportEmail = "info@orthoai.co";
+  const mailto = `mailto:${supportEmail}?subject=OrthoAI%20Demo%20Support`;
+
+  async function handleSupportClick() {
+    setSupportCopied(false);
+    try {
+      await navigator.clipboard.writeText(supportEmail);
+      setSupportCopied(true);
+    } catch {
+      setSupportCopied(false);
+    }
+  }
 
   return (
     <div className="mx-auto grid w-full max-w-5xl gap-6">
@@ -100,12 +112,16 @@ export default function HelpPage() {
         <div>
           <h2 className="text-xl font-semibold text-slate-900">Need additional support?</h2>
           <p className="mt-2 text-sm text-slate-600">Contact the OrthoAI support team for demo access, workflow questions, or technical assistance.</p>
+          <p className="mt-3 text-sm font-semibold text-brand-primary">{supportEmail}</p>
+          {supportCopied ? <p className="mt-1 text-xs font-semibold text-emerald-700">Email copied. Your mail app should open if configured.</p> : null}
         </div>
-        <a href={mailto}>
-          <Button type="button">
-            <Mail className="h-4 w-4" />
-            Contact Support
-          </Button>
+        <a
+          href={mailto}
+          onClick={handleSupportClick}
+          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl px-6 py-2.5 text-sm font-medium text-white shadow-sm transition gradient-purple hover:brightness-95 focus:outline-none focus:ring-4 focus:ring-indigo-200"
+        >
+          <Mail className="h-4 w-4" />
+          Contact Customer Support
         </a>
       </Card>
     </div>

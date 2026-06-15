@@ -42,10 +42,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           <button
             type="button"
             onClick={() => router.push("/upload")}
-            className="flex h-11 items-center gap-3"
+            className="flex h-11 shrink-0 items-center gap-3"
             aria-label="OrthoAI upload"
           >
-            <Image src="/header.png" alt="OrthoAI" width={120} height={40} priority className="h-auto max-h-10 w-auto" />
+            <Image src="/header.png" alt="" width={144} height={36} priority unoptimized className="h-9 w-auto max-w-36 object-contain" />
+            <span className="text-xl font-black tracking-normal text-slate-950">OrthoAI</span>
           </button>
           <nav className="flex flex-1 items-center justify-end gap-1 overflow-x-auto">
             {nav.map((item) => {
