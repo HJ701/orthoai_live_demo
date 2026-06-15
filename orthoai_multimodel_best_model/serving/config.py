@@ -17,7 +17,7 @@ class Settings:
     final_results_path: Path = Path(
         os.getenv("ORTHOAI_FINAL_RESULTS", PACKAGE_ROOT / "artifacts" / "final_results.json")
     )
-    device: str = os.getenv("ORTHOAI_DEVICE", "cuda")
+    device: str = os.getenv("ORTHOAI_DEVICE", "cpu")
     require_rgb: bool = os.getenv("ORTHOAI_REQUIRE_RGB", "1") == "1"
     require_xray: bool = os.getenv("ORTHOAI_REQUIRE_XRAY", "1") == "1"
 

@@ -79,7 +79,9 @@ def normalize_view(view: Optional[str], modality: str, source: str = "") -> str:
 class OrthoPatientFusionRuntime:
     def __init__(self, settings: Settings):
         self.settings = settings
-        self.device = torch.device(settings.device if settings.device != "cuda" or torch.cuda.is_available() else "cpu")
+        if settings.device == "cuda" and not torch.cuda.is_available():
+            raise RuntimeError("ORTHOAI_DEVICE=cuda was requested, but CUDA is unavailable")
+        self.device = torch.device(settings.device)
         self.checkpoint_path = settings.checkpoint_path.resolve()
         self.final_results_path = settings.final_results_path.resolve()
         self.model: Optional[PatientFusionModel] = None

@@ -1,0 +1,40 @@
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONPATH=/app \
+    ORTHOAI_DEVICE=cuda \
+    PRELOAD_MODEL_RUNTIME=true \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-venv \
+    python3-pip \
+    postgresql-client \
+    libpq-dev \
+    gcc \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd --create-home --shell /bin/bash appuser
+
+WORKDIR /app
+
+COPY requirements.txt .
+
+RUN python3.11 -m pip install --upgrade pip
+RUN python3.11 -m pip install --index-url https://download.pytorch.org/whl/cu124 \
+    torch==2.5.1 \
+    torchvision==0.20.1
+RUN python3.11 -m pip install -r requirements.txt
+
+COPY . .
+
+RUN mkdir -p uploads && chown -R appuser:appuser /app
+
+USER appuser
+
+CMD ["celery", "-A", "app.celery_app", "worker", "-Q", "gpu-inference", "--loglevel=info", "--concurrency=1"]
