@@ -1,6 +1,12 @@
 name: Deploy GPU Worker
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - "Dockerfile.gpu"
+      - ".github/workflows/deploy-gpu-worker.yml"
   workflow_dispatch:
     inputs:
       desired_count:
@@ -110,7 +116,7 @@ jobs:
       - name: Create or update GPU ECS service
         env:
           GPU_TASK_DEFINITION: ${{ steps.gpu-task.outputs.arn }}
-          DESIRED_COUNT: ${{ github.event.inputs.desired_count }}
+          DESIRED_COUNT: ${{ github.event.inputs.desired_count || '1' }}
         run: |
           service_count=$(aws ecs describe-services \
             --cluster "$ECS_CLUSTER" \
