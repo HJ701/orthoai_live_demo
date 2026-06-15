@@ -19,4 +19,7 @@ celery_app.conf.update(
     task_eager_propagates=True,
     task_time_limit=30 * 60,  # 30 minutes
     task_soft_time_limit=25 * 60,  # 25 minutes
+    task_routes={
+        "app.tasks.inference.run_inference": {"queue": "gpu-inference"},
+    },
 )
