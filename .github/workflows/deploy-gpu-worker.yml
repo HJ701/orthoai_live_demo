@@ -1,0 +1,140 @@
+name: Deploy GPU Worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      desired_count:
+        description: "GPU worker desired count"
+        required: true
+        default: "1"
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: eu-north-1
+  GPU_ECR_REPOSITORY: medical-ai-production-celery-gpu
+  ECS_CLUSTER: medical-ai-production-cluster
+  GPU_SERVICE: medical-ai-production-celery-gpu-service
+  GPU_CAPACITY_PROVIDER: orthoai-production-gpu-capacity
+  GPU_SUBNET: subnet-0e1fe18240b9544fd
+  ECS_SECURITY_GROUP: sg-07796e2d198063258
+
+jobs:
+  deploy:
+    name: Build and Deploy GPU Celery Worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push GPU image
+        env:
+          GPU_IMAGE_URI: ${{ steps.ecr.outputs.registry }}/${{ env.GPU_ECR_REPOSITORY }}:${{ github.sha }}
+          GPU_LATEST_URI: ${{ steps.ecr.outputs.registry }}/${{ env.GPU_ECR_REPOSITORY }}:latest
+        run: |
+          docker build -f Dockerfile.gpu -t "$GPU_IMAGE_URI" -t "$GPU_LATEST_URI" .
+          docker push "$GPU_IMAGE_URI"
+          docker push "$GPU_LATEST_URI"
+
+      - name: Register GPU celery task definition
+        id: gpu-task
+        env:
+          GPU_IMAGE_URI: ${{ steps.ecr.outputs.registry }}/${{ env.GPU_ECR_REPOSITORY }}:${{ github.sha }}
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition medical-ai-production-celery \
+            --query taskDefinition > current-celery.json
+
+          jq --arg image "$GPU_IMAGE_URI" '
+            def set_env($name; $value):
+              .environment = ((.environment // []) | map(select(.name != $name)) + [{"name": $name, "value": $value}]);
+            .family = "medical-ai-production-celery-gpu"
+            | .requiresCompatibilities = ["EC2"]
+            | .containerDefinitions |= map(
+                if .name == "celery" then
+                  .image = $image
+                  | .command = ["celery", "-A", "app.celery_app", "worker", "-Q", "gpu-inference", "--loglevel=info", "--concurrency=1"]
+                  | .resourceRequirements = [{"type": "GPU", "value": "1"}]
+                  | set_env("ORTHOAI_DEVICE"; "cuda")
+                  | set_env("PRELOAD_MODEL_RUNTIME"; "true")
+                  | set_env("NVIDIA_DRIVER_CAPABILITIES"; "compute,utility")
+                  | .logConfiguration = {
+                      "logDriver": "awslogs",
+                      "options": {
+                        "awslogs-group": "/ecs/medical-ai-production-celery-gpu",
+                        "awslogs-region": "eu-north-1",
+                        "awslogs-stream-prefix": "ecs"
+                      }
+                    }
+                else
+                  .
+                end
+              )
+            | {
+                family,
+                taskRoleArn,
+                executionRoleArn,
+                networkMode,
+                containerDefinitions,
+                volumes,
+                placementConstraints,
+                requiresCompatibilities,
+                cpu,
+                memory
+              }
+          ' current-celery.json > gpu-task-definition.json
+
+          arn=$(aws ecs register-task-definition \
+            --cli-input-json file://gpu-task-definition.json \
+            --query taskDefinition.taskDefinitionArn \
+            --output text)
+
+          echo "arn=$arn" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update GPU ECS service
+        env:
+          GPU_TASK_DEFINITION: ${{ steps.gpu-task.outputs.arn }}
+          DESIRED_COUNT: ${{ github.event.inputs.desired_count }}
+        run: |
+          service_count=$(aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$GPU_SERVICE" \
+            --query 'length(services)' \
+            --output text)
+
+          if [ "$service_count" = "0" ]; then
+            aws ecs create-service \
+              --cluster "$ECS_CLUSTER" \
+              --service-name "$GPU_SERVICE" \
+              --task-definition "$GPU_TASK_DEFINITION" \
+              --desired-count "$DESIRED_COUNT" \
+              --capacity-provider-strategy "capacityProvider=$GPU_CAPACITY_PROVIDER,weight=1" \
+              --network-configuration "awsvpcConfiguration={subnets=[$GPU_SUBNET],securityGroups=[$ECS_SECURITY_GROUP],assignPublicIp=DISABLED}"
+          else
+            aws ecs update-service \
+              --cluster "$ECS_CLUSTER" \
+              --service "$GPU_SERVICE" \
+              --task-definition "$GPU_TASK_DEFINITION" \
+              --desired-count "$DESIRED_COUNT" \
+              --capacity-provider-strategy "capacityProvider=$GPU_CAPACITY_PROVIDER,weight=1"
+          fi
+
+          aws ecs wait services-stable \
+            --cluster "$ECS_CLUSTER" \
+            --services "$GPU_SERVICE"
