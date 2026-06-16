@@ -31,6 +31,7 @@ import {
   ClinicalStats,
   ClinicalPayload,
 } from '@/lib/api'
+import { displayClass } from '@/lib/format'
 
 const classOptions = [
   'Class I',
@@ -86,7 +87,9 @@ function ClinicalPageContent() {
   // Derived OrthoAI output
   const prediction: any = (results?.findings as any)?.prediction || {}
   const timings: any = (results?.findings as any)?.timings || {}
-  const aiClassRaw = String(prediction.predicted_class || '')
+  // Map the model's raw class (numeric "0/1/2" from the real model, or readable
+  // from the mock) to a readable malocclusion class before matching options.
+  const aiClassRaw = displayClass(prediction.predicted_class)
   const aiClass = classOptions.includes(aiClassRaw) ? aiClassRaw : 'Unclassifiable'
   const aiConfidence: number | null =
     typeof prediction.confidence === 'number' ? prediction.confidence : null

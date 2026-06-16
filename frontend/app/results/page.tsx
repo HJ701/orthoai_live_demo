@@ -41,6 +41,7 @@ import {
   PhotoCamera,
 } from '@mui/icons-material'
 import { motion } from 'framer-motion'
+import { displayClass } from '@/lib/format'
 
 interface DiagnosticResult {
   condition: string
@@ -147,47 +148,53 @@ function ResultsPageContent() {
         })
 
         // Transform API results to frontend format.
-        // Backend shape: per_image_evidence[].findings = { image_id, detections: [{ type, confidence, ... }] }
+        // The deployed model returns ONE patient-level prediction
+        // (findings.prediction) plus per_image_evidence[].findings.detections[]
+        // echoing that prediction per image. Class names are numeric ("0/1/2")
+        // from the real model, or readable from the mock — displayClass handles both.
         const transformedResults: DiagnosticResult[] = []
         const evidenceSummaries: { label: string; condition: string; confidence: number }[] = []
+        const prediction = (apiResults.findings as any)?.prediction
 
+        // Per-image evidence cards (one per uploaded image), readable class names
         apiResults.per_image_evidence.forEach((evidence, idx) => {
           const detections: any[] = Array.isArray((evidence.findings as any)?.detections)
             ? (evidence.findings as any).detections
             : []
           const top = detections[0]
-          const evConfidence = Math.round(((top?.confidence ?? evidence.confidence) || 0) * 100)
-
           evidenceSummaries.push({
             label: evidence.filename || `Image ${idx + 1}`,
-            condition: top?.type || 'No findings',
-            confidence: evConfidence,
-          })
-
-          detections.forEach((det) => {
-            transformedResults.push({
-              condition: det.type || 'Finding',
-              confidence: Math.round(((det.confidence ?? evidence.confidence) || 0) * 100),
-              severity: det.severity || 'medium',
-              description: det.description || apiResults.summary,
-              recommendations: det.recommendations || [],
-              imageIndex: idx,
-            })
+            condition: displayClass(top?.type ?? prediction?.predicted_class ?? 'No findings'),
+            confidence: Math.round(((top?.confidence ?? evidence.confidence) || 0) * 100),
           })
         })
 
-        // Fallback: derive a single finding from the top-level prediction if no per-image detections
-        if (transformedResults.length === 0) {
-          const prediction = (apiResults.findings as any)?.prediction
-          if (prediction?.predicted_class) {
-            transformedResults.push({
-              condition: prediction.predicted_class,
-              confidence: Math.round((prediction.confidence || 0) * 100),
-              severity: 'medium',
-              description: apiResults.summary,
-              recommendations: [],
+        // Primary finding = the single patient-level diagnosis (not one row per image)
+        if (prediction?.predicted_class != null) {
+          transformedResults.push({
+            condition: displayClass(prediction.predicted_class),
+            confidence: Math.round((prediction.confidence || 0) * 100),
+            severity: 'medium',
+            description: apiResults.summary,
+            recommendations: [],
+          })
+        } else {
+          // Fallback: derive findings from per-image detections
+          apiResults.per_image_evidence.forEach((evidence, idx) => {
+            const detections: any[] = Array.isArray((evidence.findings as any)?.detections)
+              ? (evidence.findings as any).detections
+              : []
+            detections.forEach((det) => {
+              transformedResults.push({
+                condition: displayClass(det.type),
+                confidence: Math.round(((det.confidence ?? evidence.confidence) || 0) * 100),
+                severity: det.severity || 'medium',
+                description: det.description || apiResults.summary,
+                recommendations: det.recommendations || [],
+                imageIndex: idx,
+              })
             })
-          }
+          })
         }
 
         setImageEvidence(evidenceSummaries)
