@@ -1,155 +1,494 @@
-import type {
-  Activity,
-  CaseItem,
-  CaseResults,
-  ClinicalList,
-  ClinicalPayload,
-  ClinicalRecord,
-  ClinicalStats,
-  InferenceStart,
-  InferenceStatus,
-  OTPResponse,
-  SSOProvider,
-  TokenResponse,
-  User,
-} from "@/lib/types";
+// API Client for OrthoAI Backend
 
-export const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ||
-  "https://api.demo.orthoai.co";
+// Base URL for the FastAPI backend. Configured at build time via
+// NEXT_PUBLIC_API_BASE_URL (set per-environment, e.g. http://127.0.0.1:8000
+// for local dev). Falls back to the production API so a missing env var never
+// produces "undefined/api/..." request URLs.
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_BASE_URL || 'https://api.demo.orthoai.co'
+).replace(/\/$/, '')
 
-type ApiOptions = RequestInit & {
-  token?: string;
-};
-
-async function readJson<T>(response: Response): Promise<T> {
-  const text = await response.text();
-  if (!text) return null as T;
-  return JSON.parse(text) as T;
+// Types matching backend schemas
+export interface Token {
+  access_token: string
+  token_type: string
 }
 
-export async function apiFetch<T>(path: string, options: ApiOptions = {}): Promise<T> {
-  const headers = new Headers(options.headers);
-  if (options.token) headers.set("Authorization", `Bearer ${options.token}`);
-  if (options.body && !(options.body instanceof FormData) && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
+export interface OTPRequest {
+  email: string
+}
+
+export interface OTPResponse {
+  message: string
+  // Only returned by the backend in development mode (DEV_EXPOSE_OTP=true),
+  // where no email is actually sent. Never present in production responses.
+  dev_otp?: string | null
+}
+
+export interface OTPLogin {
+  email: string
+  otp: string
+}
+
+export interface CaseCreate {
+  consent_checked: boolean
+  patient_id?: string
+  title?: string
+  clinic_location?: string
+  tags?: string[]
+  note?: string
+}
+
+export interface CaseResponse {
+  id: number
+  user_id: number
+  consent_checked: boolean
+  patient_id: string
+  title: string
+  clinic_location?: string
+  note?: string
+  tags?: string[]
+  status?: 'queued' | 'running' | 'done' | 'error'
+  created_at: string
+}
+
+export interface ImageUploadResponse {
+  image_ids: number[]
+}
+
+export interface InferenceRequest {
+  case_id: number
+}
+
+export interface InferenceResponse {
+  job_id: number
+}
+
+export type JobState = 'queued' | 'running' | 'done' | 'error'
+
+export interface InferenceStatusResponse {
+  state: JobState
+  progress: number
+  error_message?: string | null
+  created_at: string
+  started_at?: string | null
+  completed_at?: string | null
+}
+
+export interface ImageEvidenceResponse {
+  image_id: number
+  filename: string
+  findings: Record<string, any>
+  confidence: number
+}
+
+export interface CaseResultsResponse {
+  case_id: number
+  model_version: string
+  findings: Record<string, any>
+  summary: string
+  confidences: Record<string, number>
+  per_image_evidence: ImageEvidenceResponse[]
+  created_at: string
+}
+
+export interface CaseNoteCreate {
+  content: string
+}
+
+export interface CaseNoteResponse {
+  id: number
+  case_id: number
+  content: string
+  created_by: number
+  created_at: string
+}
+
+// Helper function to get auth token from storage
+function getAuthToken(): string | null {
+  if (typeof window === 'undefined') return null
+  return sessionStorage.getItem('authToken')
+}
+
+// Helper function to set auth token
+function setAuthToken(token: string): void {
+  if (typeof window === 'undefined') return
+  sessionStorage.setItem('authToken', token)
+}
+
+// Helper function to clear auth token
+export function clearAuthToken(): void {
+  if (typeof window === 'undefined') return
+  sessionStorage.removeItem('authToken')
+}
+
+// Base fetch wrapper with auth
+async function apiFetch(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<Response> {
+  const token = getAuthToken()
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string> || {}),
   }
-  const response = await fetch(`${API_BASE}${path}`, {
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     ...options,
     headers,
-  });
-  const body = await readJson<unknown>(response).catch(() => null);
-  if (!response.ok) {
-    const detail =
-      body && typeof body === "object" && "detail" in body
-        ? String((body as { detail: unknown }).detail)
-        : `HTTP ${response.status}`;
-    throw new Error(detail);
+  })
+
+  if (response.status === 401) {
+    // Unauthorized - clear token and redirect to signin
+    clearAuthToken()
+    if (typeof window !== 'undefined') {
+      window.location.href = '/signin'
+    }
+    throw new Error('Unauthorized')
   }
-  return body as T;
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
+    throw new Error(error.detail || `API error: ${response.statusText}`)
+  }
+
+  return response
 }
 
-export const authApi = {
-  requestOtp: (email: string) =>
-    apiFetch<OTPResponse>("/api/v1/auth/request-otp", {
-      method: "POST",
+// Auth API
+export const authAPI = {
+  async requestOTP(email: string): Promise<OTPResponse> {
+    const response = await apiFetch('/api/v1/auth/request-otp', {
+      method: 'POST',
       body: JSON.stringify({ email }),
-    }),
-  login: (email: string, otp: string) =>
-    apiFetch<TokenResponse>("/api/v1/auth/login", {
-      method: "POST",
+    })
+    return response.json()
+  },
+
+  async login(email: string, otp: string): Promise<Token> {
+    const response = await apiFetch('/api/v1/auth/login', {
+      method: 'POST',
       body: JSON.stringify({ email, otp }),
-    }),
-  me: (token: string) => apiFetch<User>("/api/v1/auth/me", { token }),
-  acceptTerms: (token: string) =>
-    apiFetch<User & { message: string }>("/api/v1/auth/accept-terms", {
-      method: "PUT",
-      token,
-    }),
-  ssoProviders: async () =>
-    (await apiFetch<{ providers: SSOProvider[] }>("/api/v1/auth/sso/providers")).providers,
-};
-
-export const caseApi = {
-  list: (token: string) => apiFetch<CaseItem[]>("/api/v1/cases", { token }),
-  get: (token: string, caseId: number) => apiFetch<CaseItem>(`/api/v1/cases/${caseId}`, { token }),
-  create: (token: string, payload: Partial<CaseItem> & { consent_checked: boolean }) =>
-    apiFetch<CaseItem>("/api/v1/cases", {
-      method: "POST",
-      token,
-      body: JSON.stringify(payload),
-    }),
-  delete: (token: string, caseId: number) =>
-    apiFetch<{ message: string; case_id: number }>(`/api/v1/cases/${caseId}`, {
-      method: "DELETE",
-      token,
-    }),
-  uploadImages: (token: string, caseId: number, files: File[]) => {
-    const body = new FormData();
-    for (const file of files) body.append("files", file);
-    return apiFetch<{ image_ids: number[] }>(`/api/v1/cases/${caseId}/images`, {
-      method: "POST",
-      token,
-      body,
-    });
+    })
+    const token = await response.json()
+    setAuthToken(token.access_token)
+    return token
   },
-  addNote: (token: string, caseId: number, content: string) =>
-    apiFetch<{ id: number }>(`/api/v1/cases/${caseId}/notes`, {
-      method: "POST",
-      token,
-      body: JSON.stringify({ content }),
-    }),
-};
 
-export const inferenceApi = {
-  start: (token: string, caseId: number) =>
-    apiFetch<InferenceStart>("/api/v1/inference", {
-      method: "POST",
-      token,
-      body: JSON.stringify({ case_id: caseId }),
-    }),
-  status: (token: string, jobId: number, caseId?: number) =>
-    apiFetch<InferenceStatus>(
-      `/api/v1/inference/${jobId}/status${caseId ? `?case_id=${caseId}` : ""}`,
-      { token },
-    ),
-  cancel: (token: string, jobId: number, caseId?: number) =>
-    apiFetch<{ message: string }>(
-      `/api/v1/inference/${jobId}/cancel${caseId ? `?case_id=${caseId}` : ""}`,
-      { method: "POST", token },
-    ),
-};
+  async me(): Promise<User> {
+    const response = await apiFetch('/api/v1/auth/me', { method: 'GET' })
+    return response.json()
+  },
+}
 
-export const resultsApi = {
-  get: (token: string, caseId: number) => apiFetch<CaseResults>(`/api/v1/cases/${caseId}/results`, { token }),
-  pdfUrl: (caseId: number) => `${API_BASE}/api/v1/cases/${caseId}/summary.pdf`,
-  downloadPdf: async (token: string, caseId: number) => {
-    const response = await fetch(`${API_BASE}/api/v1/cases/${caseId}/summary.pdf`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || `HTTP ${response.status}`);
+// Cases API
+export const casesAPI = {
+  async createCase(data: CaseCreate): Promise<CaseResponse> {
+    const response = await apiFetch('/api/v1/cases', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+    return response.json()
+  },
+
+  async uploadImages(
+    caseId: number,
+    files: File[]
+  ): Promise<ImageUploadResponse> {
+    const formData = new FormData()
+    files.forEach((file) => {
+      formData.append('files', file)
+    })
+
+    const token = getAuthToken()
+    const headers: Record<string, string> = {}
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
     }
-    return response.blob();
+
+    const response = await fetch(
+      `${API_BASE_URL}/api/v1/cases/${caseId}/images`,
+      {
+        method: 'POST',
+        headers,
+        body: formData,
+      }
+    )
+
+    if (response.status === 401) {
+      clearAuthToken()
+      if (typeof window !== 'undefined') {
+        window.location.href = '/signin'
+      }
+      throw new Error('Unauthorized')
+    }
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
+      throw new Error(error.detail || `API error: ${response.statusText}`)
+    }
+
+    return response.json()
   },
-};
 
-export const clinicalApi = {
-  health: (token: string, caseId: number) =>
-    apiFetch<{ diagnosis_complete: boolean }>(`/api/v1/clinical/health?source_case_id=${caseId}`, { token }),
-  list: (token: string, caseId: number) =>
-    apiFetch<ClinicalList>(`/api/v1/clinical/cases?source_case_id=${caseId}&limit=20`, { token }),
-  stats: (token: string, caseId: number) =>
-    apiFetch<ClinicalStats>(`/api/v1/clinical/stats?source_case_id=${caseId}`, { token }),
-  create: (token: string, caseId: number, payload: ClinicalPayload) =>
-    apiFetch<ClinicalRecord>(`/api/v1/clinical/cases?source_case_id=${caseId}`, {
-      method: "POST",
-      token,
+  async addNote(caseId: number, content: string): Promise<CaseNoteResponse> {
+    const response = await apiFetch(`/api/v1/cases/${caseId}/notes`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    })
+    return response.json()
+  },
+
+  async listCases(): Promise<CaseResponse[]> {
+    const response = await apiFetch('/api/v1/cases', {
+      method: 'GET',
+    })
+    return response.json()
+  },
+
+  async getCase(caseId: number): Promise<CaseResponse> {
+    const response = await apiFetch(`/api/v1/cases/${caseId}`, { method: 'GET' })
+    return response.json()
+  },
+}
+
+// Inference API
+export const inferenceAPI = {
+  async startInference(caseId: number): Promise<InferenceResponse> {
+    const response = await apiFetch('/api/v1/inference', {
+      method: 'POST',
+      body: JSON.stringify({ case_id: caseId }),
+    })
+    return response.json()
+  },
+
+  async getStatus(jobId: number): Promise<InferenceStatusResponse> {
+    const response = await apiFetch(`/api/v1/inference/${jobId}/status`, {
+      method: 'GET',
+    })
+    return response.json()
+  },
+
+  async cancelJob(jobId: number): Promise<void> {
+    await apiFetch(`/api/v1/inference/${jobId}/cancel`, {
+      method: 'POST',
+    })
+  },
+}
+
+// Results API
+export const resultsAPI = {
+  async getResults(caseId: number): Promise<CaseResultsResponse> {
+    const response = await apiFetch(`/api/v1/cases/${caseId}/results`, {
+      method: 'GET',
+    })
+    return response.json()
+  },
+
+  async downloadPDF(caseId: number): Promise<Blob> {
+    const token = getAuthToken()
+    const headers: HeadersInit = {}
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
+
+    const response = await fetch(
+      `${API_BASE_URL}/api/v1/cases/${caseId}/summary.pdf`,
+      {
+        headers,
+      }
+    )
+
+    if (response.status === 401) {
+      clearAuthToken()
+      if (typeof window !== 'undefined') {
+        window.location.href = '/signin'
+      }
+      throw new Error('Unauthorized')
+    }
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
+      throw new Error(error.detail || `API error: ${response.statusText}`)
+    }
+
+    return response.blob()
+  },
+}
+
+// ===================== User profile & activity =====================
+
+export interface User {
+  id: number
+  email: string
+  auth_provider: string
+  full_name?: string | null
+  avatar_url?: string | null
+  is_active: boolean
+  terms_accepted: boolean
+  terms_accepted_at?: string | null
+  last_login_at?: string | null
+  created_at: string
+}
+
+export interface ActivityCase {
+  id: number
+  patient_id: string | null
+  title: string | null
+  status: JobState | null
+  has_results: boolean
+  created_at: string
+}
+
+export interface ActivityValidation {
+  id: number
+  orthoai_case_id: number
+  site: string
+  case_id: string
+  m_class: string
+  dhc: number
+  ai_class: string | null
+  ai_dhc: number | null
+  class_match: boolean | null
+  created_at: string
+}
+
+export interface AuditLogEntry {
+  id: number
+  action: string
+  resource_type: string
+  resource_id: number | null
+  details: Record<string, any>
+  ip_address: string | null
+  created_at: string
+}
+
+export interface Activity {
+  user: User
+  case_count: number
+  completed_diagnoses: number
+  clinical_validation_count: number
+  cases: ActivityCase[]
+  clinical_validations: ActivityValidation[]
+  audit_logs: AuditLogEntry[]
+}
+
+export const usersAPI = {
+  async activity(): Promise<Activity> {
+    const response = await apiFetch('/api/v1/users/activity', { method: 'GET' })
+    return response.json()
+  },
+}
+
+// ===================== Clinical validation =====================
+
+export interface ClinicalPayload {
+  site: string
+  case_id: string
+  assess_date?: string | null
+  clinician?: string | null
+  age?: number | null
+  sex?: 'Female' | 'Male' | 'Other' | 'Undisclosed' | null
+  rec_opg: boolean
+  rec_photo: boolean
+  rec_other: boolean
+  m_class: string
+  dhc: number
+  ac?: number | null
+  t_manual?: number | null
+  ai_class?: string | null
+  ai_dhc?: number | null
+  ai_ac?: number | null
+  ai_conf?: number | null
+  t_ai?: number | null
+  calib?: 'Well-calibrated' | 'Over-confident' | 'Under-confident' | 'N/A' | null
+  agree?: 'Agree' | 'Partial' | 'Disagree' | null
+  override?: 'Yes' | 'No' | null
+  override_reason?: string | null
+  useful?: number | null
+  comment?: string | null
+}
+
+export interface ClinicalRecord {
+  id: number
+  orthoai_case_id: number
+  site: string
+  case_id: string
+  m_class: string
+  dhc: number
+  ai_class: string | null
+  ai_dhc: number | null
+  ai_ac?: number | null
+  ai_conf?: number | null
+  agree?: string | null
+  override?: string | null
+  class_match: boolean | null
+  useful: number | null
+  high_need?: boolean
+  dhc_delta?: number | null
+  created_at: string
+}
+
+export interface ClinicalList {
+  total: number
+  items: ClinicalRecord[]
+}
+
+export interface ClinicalHealth {
+  status: string
+  authenticated: boolean
+  diagnosis_required: boolean
+  diagnosis_complete: boolean
+}
+
+export interface ClinicalStats {
+  n: number
+  sites: number
+  high_need: number
+  class_pairs: number
+  class_agreement_pct: number | null
+  dhc_pairs: number
+  dhc_exact_pct: number | null
+  mean_dhc_delta: number | null
+  mean_useful: number | null
+  override_rate_pct: number | null
+  mean_t_manual: number | null
+  mean_t_ai: number | null
+}
+
+export const clinicalAPI = {
+  async health(caseId: number): Promise<ClinicalHealth> {
+    const response = await apiFetch(`/api/v1/clinical/health?source_case_id=${caseId}`, {
+      method: 'GET',
+    })
+    return response.json()
+  },
+
+  async list(caseId: number): Promise<ClinicalList> {
+    const response = await apiFetch(
+      `/api/v1/clinical/cases?source_case_id=${caseId}&limit=20`,
+      { method: 'GET' },
+    )
+    return response.json()
+  },
+
+  async stats(caseId: number): Promise<ClinicalStats> {
+    const response = await apiFetch(`/api/v1/clinical/stats?source_case_id=${caseId}`, {
+      method: 'GET',
+    })
+    return response.json()
+  },
+
+  async create(caseId: number, payload: ClinicalPayload): Promise<ClinicalRecord> {
+    const response = await apiFetch(`/api/v1/clinical/cases?source_case_id=${caseId}`, {
+      method: 'POST',
       body: JSON.stringify(payload),
-    }),
-};
+    })
+    return response.json()
+  },
+}
 
-export const userApi = {
-  activity: (token: string) => apiFetch<Activity>("/api/v1/users/activity", { token }),
-};

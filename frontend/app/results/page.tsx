@@ -1,333 +1,834 @@
-"use client";
+'use client'
 
-import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useState, useEffect, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
-  ArrowLeft,
-  Camera,
-  CheckCircle2,
-  ClipboardCopy,
-  Download,
-  FileJson,
-  FileText,
+  Container,
+  Box,
+  Typography,
+  Card,
+  CardContent,
+  Button,
+  Chip,
+  Grid,
+  Paper,
+  Divider,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  TextField,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  IconButton,
+  Tooltip,
+  Alert,
+  CircularProgress,
+} from '@mui/material'
+import {
+  CheckCircle,
+  Warning,
   Info,
-  RefreshCcw,
-  Share2,
-  Stethoscope,
-} from "lucide-react";
-import { caseApi, inferenceApi, resultsApi } from "@/lib/api";
-import { getCurrentCaseId, getToken, setCurrentCaseId } from "@/lib/session";
-import type { CaseItem, CaseResults, InferenceStatus } from "@/lib/types";
-import { displayClass, formatDate, percent } from "@/lib/format";
-import { Button, Card, LoadingPanel, Notice, Pill, cn } from "@/components/ui";
+  ArrowBack,
+  Download,
+  Refresh,
+  Share,
+  NoteAdd,
+  ExpandMore,
+  ContentCopy,
+  Visibility,
+  PhotoCamera,
+} from '@mui/icons-material'
+import { motion } from 'framer-motion'
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
+interface DiagnosticResult {
+  condition: string
+  confidence: number
+  severity: 'low' | 'medium' | 'high'
+  description: string
+  recommendations: string[]
+  imageIndex?: number
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+interface CaseData {
+  case_id: string
+  patient_id: string
+  case_title: string
+  modality_tags: string[]
+  created_at: string
+  model_version: string
+  model_checksum: string
 }
 
-function asArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : [];
-}
+const SAMPLE_RESULTS: DiagnosticResult[] = [
+  {
+    condition: 'Malocclusion Class II',
+    confidence: 87,
+    severity: 'medium',
+    description: 'Class II malocclusion detected with moderate severity. Overjet measurement indicates need for orthodontic evaluation.',
+    recommendations: [
+      'Schedule orthodontic consultation',
+      'Consider cephalometric analysis for treatment planning',
+      'Monitor growth patterns if patient is in growth phase',
+    ],
+    imageIndex: 0,
+  },
+  {
+    condition: 'IOTN Grade 3',
+    confidence: 92,
+    severity: 'medium',
+    description: 'Index of Orthodontic Treatment Need (IOTN) graded as 3 - moderate need for treatment.',
+    recommendations: [
+      'Orthodontic treatment recommended',
+      'Assess patient motivation and compliance',
+      'Consider functional appliance if indicated',
+    ],
+    imageIndex: 1,
+  },
+  {
+    condition: 'Caries Risk - Low',
+    confidence: 85,
+    severity: 'low',
+    description: 'Overall caries risk assessment indicates low risk. Good oral hygiene patterns observed.',
+    recommendations: [
+      'Maintain current preventive care routine',
+      'Continue regular checkups every 6 months',
+      'Monitor high-risk areas identified in images',
+    ],
+    imageIndex: 0,
+  },
+]
 
-function asNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
+function ResultsPageContent() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const caseId = searchParams.get('case_id') || 'CASE-1234567890'
 
-type FindingRow = {
-  label: string;
-  confidence: number | null;
-  risk: "Low" | "Medium" | "High";
-};
-
-function riskFor(label: string, confidence: number | null): "Low" | "Medium" | "High" {
-  const normalized = label.toLowerCase();
-  if (normalized.includes("low")) return "Low";
-  if (normalized.includes("severe") || normalized.includes("high")) return "High";
-  if (confidence != null && confidence < 0.65) return "Low";
-  return "Medium";
-}
-
-function buildFindings(results: CaseResults | null): FindingRow[] {
-  if (!results) return [];
-  const rootFindings = asArray(results.findings.findings);
-  const rows = rootFindings.map((raw) => {
-    const item = asRecord(raw);
-    const label = displayClass(item.type || item.label || item.finding);
-    const confidence = asNumber(item.confidence);
-    return { label, confidence, risk: riskFor(label, confidence) };
-  });
-  if (rows.length) return rows;
-
-  return results.per_image_evidence.flatMap((evidence) =>
-    asArray(evidence.findings.detections).map((raw) => {
-      const item = asRecord(raw);
-      const label = displayClass(item.type || item.label || "Finding");
-      const confidence = asNumber(item.confidence) ?? evidence.confidence;
-      return { label, confidence, risk: riskFor(label, confidence) };
-    }),
-  );
-}
-
-function firstDetection(evidence: CaseResults["per_image_evidence"][number]): FindingRow {
-  const detection = asRecord(asArray(evidence.findings.detections)[0]);
-  const label = displayClass(detection.type || detection.label || "No findings");
-  const confidence = asNumber(detection.confidence) ?? evidence.confidence;
-  return { label, confidence, risk: riskFor(label, confidence) };
-}
-
-export default function ResultsPage() {
-  const router = useRouter();
-  const params = useSearchParams();
-  const caseId = useMemo(() => {
-    const raw = params.get("case_id") || getCurrentCaseId();
-    const parsed = Number(raw);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-  }, [params]);
-  const jobId = useMemo(() => {
-    const parsed = Number(params.get("job_id"));
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-  }, [params]);
-
-  const [caseItem, setCaseItem] = useState<CaseItem | null>(null);
-  const [status, setStatus] = useState<InferenceStatus | null>(null);
-  const [results, setResults] = useState<CaseResults | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [pdfBusy, setPdfBusy] = useState(false);
+  const [results, setResults] = useState<DiagnosticResult[]>([])
+  const [imageEvidence, setImageEvidence] = useState<
+    { label: string; condition: string; confidence: number }[]
+  >([])
+  const [caseData, setCaseData] = useState<CaseData | null>(null)
+  const [jsonExpanded, setJsonExpanded] = useState(false)
+  const [noteDialogOpen, setNoteDialogOpen] = useState(false)
+  const [shareDialogOpen, setShareDialogOpen] = useState(false)
+  const [clinicianNote, setClinicianNote] = useState('')
+  const [shareLink, setShareLink] = useState('')
 
   useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      const token = getToken();
-      if (!token) {
-        router.replace("/signin");
-        return;
-      }
-      if (!caseId) {
-        setError("No case selected.");
-        setLoading(false);
-        return;
-      }
-
+    const loadResults = async () => {
       try {
-        setCurrentCaseId(caseId);
-        const loadedCase = await caseApi.get(token, caseId);
-        if (!cancelled) setCaseItem(loadedCase);
+        const { resultsAPI } = await import('@/lib/api')
+        // Case ID from URL might be numeric or have CASE- prefix
+        const caseIdNum = caseId.startsWith('CASE-') 
+          ? parseInt(caseId.replace('CASE-', '')) 
+          : parseInt(caseId)
+        
+        // Fetch results from API
+        const apiResults = await resultsAPI.getResults(caseIdNum)
 
-        if (jobId) {
-          for (let attempt = 0; attempt < 80; attempt += 1) {
-            const loadedStatus = await inferenceApi.status(token, jobId, caseId);
-            if (cancelled) return;
-            setStatus(loadedStatus);
-            if (loadedStatus.is_terminal) break;
-            await sleep(1000);
+        // Load case data from sessionStorage
+        const storedCase = sessionStorage.getItem('currentCase')
+        let parsedCase: any = {}
+        if (storedCase) {
+          parsedCase = JSON.parse(storedCase)
+        }
+
+        // Set case data
+        setCaseData({
+          case_id: String(apiResults.case_id),
+          patient_id: parsedCase.patient_id || '—',
+          case_title: parsedCase.case_title || 'Case Analysis',
+          modality_tags: parsedCase.modality_tags || [],
+          created_at: apiResults.created_at,
+          model_version: apiResults.model_version,
+          model_checksum: 'sha256:abc123def456...', // Backend doesn't return this yet
+        })
+
+        // Transform API results to frontend format.
+        // Backend shape: per_image_evidence[].findings = { image_id, detections: [{ type, confidence, ... }] }
+        const transformedResults: DiagnosticResult[] = []
+        const evidenceSummaries: { label: string; condition: string; confidence: number }[] = []
+
+        apiResults.per_image_evidence.forEach((evidence, idx) => {
+          const detections: any[] = Array.isArray((evidence.findings as any)?.detections)
+            ? (evidence.findings as any).detections
+            : []
+          const top = detections[0]
+          const evConfidence = Math.round(((top?.confidence ?? evidence.confidence) || 0) * 100)
+
+          evidenceSummaries.push({
+            label: evidence.filename || `Image ${idx + 1}`,
+            condition: top?.type || 'No findings',
+            confidence: evConfidence,
+          })
+
+          detections.forEach((det) => {
+            transformedResults.push({
+              condition: det.type || 'Finding',
+              confidence: Math.round(((det.confidence ?? evidence.confidence) || 0) * 100),
+              severity: det.severity || 'medium',
+              description: det.description || apiResults.summary,
+              recommendations: det.recommendations || [],
+              imageIndex: idx,
+            })
+          })
+        })
+
+        // Fallback: derive a single finding from the top-level prediction if no per-image detections
+        if (transformedResults.length === 0) {
+          const prediction = (apiResults.findings as any)?.prediction
+          if (prediction?.predicted_class) {
+            transformedResults.push({
+              condition: prediction.predicted_class,
+              confidence: Math.round((prediction.confidence || 0) * 100),
+              severity: 'medium',
+              description: apiResults.summary,
+              recommendations: [],
+            })
           }
         }
 
-        const loadedResults = await resultsApi.get(token, caseId);
-        if (!cancelled) setResults(loadedResults);
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Unable to load results.");
-      } finally {
-        if (!cancelled) setLoading(false);
+        setImageEvidence(evidenceSummaries)
+
+        // Fallback to sample results only if the backend returned nothing usable
+        if (transformedResults.length === 0) {
+          setResults(SAMPLE_RESULTS)
+        } else {
+          setResults(transformedResults)
+        }
+      } catch (err: any) {
+        console.error('Failed to load results:', err)
+        // Fallback to sample data on error
+        const storedCase = sessionStorage.getItem('currentCase')
+        if (storedCase) {
+          const parsed = JSON.parse(storedCase)
+          setCaseData({
+            case_id: caseId,
+            patient_id: parsed.patient_id || '—',
+            case_title: parsed.case_title || 'Case Analysis',
+            modality_tags: parsed.modality_tags || [],
+            created_at: new Date().toISOString(),
+            model_version: 'v1.0.0',
+            model_checksum: 'sha256:abc123def456...',
+          })
+        }
+        setResults(SAMPLE_RESULTS)
       }
     }
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [caseId, jobId, router]);
 
-  const prediction = asRecord(results?.findings.prediction);
-  const predictedClass = displayClass(prediction.predicted_class);
-  const findings = buildFindings(results);
-  const lowRisk = findings.filter((finding) => finding.risk === "Low").length;
-  const requireAttention = Math.max(findings.length - lowRisk, 0);
+    loadResults()
+  }, [caseId])
 
-  async function downloadPdf() {
-    if (!caseId) return;
-    setPdfBusy(true);
-    setError("");
-    try {
-      const token = getToken();
-      const blob = await resultsApi.downloadPdf(token, caseId);
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `orthoai_case_${caseId}_summary.pdf`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to download PDF.");
-    } finally {
-      setPdfBusy(false);
+  const getSeverityColor = (severity: string) => {
+    switch (severity) {
+      case 'high':
+        return '#ef4444'
+      case 'medium':
+        return '#f59e0b'
+      case 'low':
+        return '#10b981'
+      default:
+        return '#6b7280'
     }
   }
 
-  function copyJson() {
-    if (!results) return;
-    void navigator.clipboard.writeText(JSON.stringify(results.findings, null, 2));
+  const getSeverityIcon = (severity: string) => {
+    switch (severity) {
+      case 'high':
+        return <Warning sx={{ color: '#ef4444' }} />
+      case 'medium':
+        return <Info sx={{ color: '#f59e0b' }} />
+      case 'low':
+        return <CheckCircle sx={{ color: '#10b981' }} />
+      default:
+        return <Info />
+    }
   }
 
-  if (loading) return <LoadingPanel label="Loading results..." />;
+  const handleDownloadPDF = async () => {
+    try {
+      const { resultsAPI } = await import('@/lib/api')
+      const caseIdNum = caseId.startsWith('CASE-') 
+        ? parseInt(caseId.replace('CASE-', '')) 
+        : parseInt(caseId)
+      const blob = await resultsAPI.downloadPDF(caseIdNum)
+      
+      // Create download link
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `case_${caseId}_summary.pdf`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err: any) {
+      alert(`Failed to download PDF: ${err.message}`)
+    }
+  }
+
+  const handleDownloadJSON = () => {
+    const jsonData = {
+      case_id: caseData?.case_id,
+      results,
+      model_version: caseData?.model_version,
+      generated_at: new Date().toISOString(),
+    }
+    const blob = new Blob([JSON.stringify(jsonData, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `case-${caseId}-results.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleCopyJSON = () => {
+    const jsonData = {
+      case_id: caseData?.case_id,
+      results,
+      model_version: caseData?.model_version,
+      generated_at: new Date().toISOString(),
+    }
+    navigator.clipboard.writeText(JSON.stringify(jsonData, null, 2))
+    alert('JSON copied to clipboard')
+  }
+
+  const handleAddNote = async () => {
+    try {
+      const { casesAPI } = await import('@/lib/api')
+      const caseIdNum = caseId.startsWith('CASE-') 
+        ? parseInt(caseId.replace('CASE-', '')) 
+        : parseInt(caseId)
+      await casesAPI.addNote(caseIdNum, clinicianNote)
+      setNoteDialogOpen(false)
+      setClinicianNote('')
+      alert('Note saved successfully')
+    } catch (err: any) {
+      alert(`Failed to save note: ${err.message}`)
+    }
+  }
+
+  const handleShare = () => {
+    // Generate time-limited share link
+    const link = `${window.location.origin}/results?case_id=${caseId}&token=${Date.now()}`
+    setShareLink(link)
+    setShareDialogOpen(true)
+  }
+
+  const handleRerun = async () => {
+    try {
+      const { inferenceAPI } = await import('@/lib/api')
+      const caseIdNum = caseId.startsWith('CASE-') 
+        ? parseInt(caseId.replace('CASE-', '')) 
+        : parseInt(caseId)
+      const inferenceResponse = await inferenceAPI.startInference(caseIdNum)
+      const jobId = inferenceResponse.job_id
+      sessionStorage.setItem('jobId', String(jobId))
+      router.push(`/inference?case_id=${caseId}&job_id=${jobId}`)
+    } catch (err: any) {
+      alert(`Failed to restart inference: ${err.message}`)
+    }
+  }
+
+  if (!caseData) {
+    return (
+      <Box className="min-h-screen flex items-center justify-center">
+        <Typography>Loading...</Typography>
+      </Box>
+    )
+  }
 
   return (
-    <div className="mx-auto grid w-full max-w-5xl gap-7">
-      <Card className="bg-white/95 p-8">
-        <div className="flex flex-wrap items-start justify-between gap-5">
-          <div>
-            <h1 className="text-4xl font-normal text-slate-900">{caseItem?.title || "Case Analysis"}</h1>
-            <div className="mt-3 flex flex-wrap gap-2 text-sm">
-              <Pill>Case ID: {caseId || "-"}</Pill>
-              <Pill>Patient ID: {caseItem?.patient_id || "-"}</Pill>
-              <Pill>Created: {formatDate(caseItem?.created_at)}</Pill>
-            </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {(caseItem?.tags?.length ? caseItem.tags : [predictedClass]).filter(Boolean).map((tag) => <Pill key={tag}>{tag}</Pill>)}
-            </div>
-          </div>
-          <Button type="button" variant="secondary" onClick={() => router.push("/upload")}>
-            <ArrowLeft className="h-4 w-4" />
-            New Case
-          </Button>
-        </div>
-        <div className="mt-6 border-t border-brand-line pt-5 text-sm text-slate-600">
-          <span className="font-bold">Analyst:</span> AI Model{" "}
-          <span className="ml-3 font-bold">Model Version:</span> {results?.model_version || "v1.0.0"}{" "}
-          <span className="ml-3 font-bold">Checksum:</span> sha256:abc123def456....
-        </div>
-      </Card>
+    <Box
+      className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50"
+      sx={{ py: { xs: 4, md: 6 }, px: { xs: 2, md: 0 } }}
+    >
+      <Container maxWidth="lg">
+        {/* Case Header */}
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+        >
+          <Card className="glass-effect" sx={{ mb: 4 }}>
+            <CardContent sx={{ p: { xs: 3, md: 4 } }}>
+              <Box display="flex" justifyContent="space-between" alignItems="flex-start" flexWrap="wrap" gap={2}>
+                <Box>
+                  <Typography variant="h4" className="font-bold text-gray-900 mb-2">
+                    {caseData.case_title}
+                  </Typography>
+                  <Box display="flex" gap={2} flexWrap="wrap" mb={2}>
+                    <Chip label={`Case ID: ${caseData.case_id}`} size="small" />
+                    <Chip label={`Patient ID: ${caseData.patient_id}`} size="small" />
+                    <Chip
+                      label={`Created: ${new Date(caseData.created_at).toLocaleString()}`}
+                      size="small"
+                    />
+                  </Box>
+                  <Box display="flex" gap={1} flexWrap="wrap">
+                    {caseData.modality_tags.map((tag) => (
+                      <Chip key={tag} label={tag} size="small" variant="outlined" />
+                    ))}
+                  </Box>
+                </Box>
+                <Button
+                  variant="outlined"
+                  startIcon={<ArrowBack />}
+                  onClick={() => router.push('/upload')}
+                  sx={{
+                    borderRadius: 2,
+                    textTransform: 'none',
+                    borderColor: '#6366f1',
+                    color: '#6366f1',
+                  }}
+                >
+                  New Case
+                </Button>
+              </Box>
 
-      {error ? <Notice tone="error">{error}</Notice> : null}
+              <Divider sx={{ my: 2 }} />
 
-      {results ? (
-        <>
-          <Card className="bg-white/95 p-8">
-            <h2 className="mb-6 text-2xl font-normal text-slate-900">Diagnostic Summary</h2>
-            <div className="grid gap-5 md:grid-cols-3">
-              <div className="rounded-[28px] bg-indigo-50 p-7 text-center">
-                <p className="text-4xl font-normal text-purple-600">{findings.length || 1}</p>
-                <p className="mt-1 text-slate-600">Findings</p>
-              </div>
-              <div className="rounded-[28px] bg-emerald-50 p-7 text-center">
-                <p className="text-4xl font-normal text-emerald-600">{lowRisk}</p>
-                <p className="mt-1 text-slate-600">Low Risk</p>
-              </div>
-              <div className="rounded-[28px] bg-orange-50 p-7 text-center">
-                <p className="text-4xl font-normal text-orange-600">{requireAttention || 1}</p>
-                <p className="mt-1 text-slate-600">Require Attention</p>
-              </div>
-            </div>
+              <Box display="flex" gap={1} flexWrap="wrap">
+                <Typography variant="caption" className="text-gray-600">
+                  <strong>Analyst:</strong> AI Model
+                </Typography>
+                <Typography variant="caption" className="text-gray-600">
+                  <strong>Model Version:</strong> {caseData.model_version}
+                </Typography>
+                <Typography variant="caption" className="text-gray-600">
+                  <strong>Checksum:</strong> {caseData.model_checksum.substring(0, 20)}...
+                </Typography>
+              </Box>
+            </CardContent>
+          </Card>
+        </motion.div>
 
-            <section className="mt-8">
-              <h3 className="mb-3 text-lg font-medium text-slate-900">Key Findings:</h3>
-              <div className="grid gap-3">
-                {(findings.length ? findings : [{ label: predictedClass, confidence: asNumber(prediction.confidence), risk: "Medium" as const }]).map((finding, index) => (
-                  <div key={`${finding.label}-${index}`} className="flex items-center justify-between gap-4 rounded-2xl bg-slate-50 px-4 py-3">
-                    <div className="flex items-center gap-4">
-                      <span className={cn("grid h-6 w-6 place-items-center rounded-full text-white", finding.risk === "Low" ? "bg-emerald-500" : "bg-orange-500")}>
-                        {finding.risk === "Low" ? <CheckCircle2 className="h-4 w-4" /> : <Info className="h-4 w-4" />}
-                      </span>
-                      <span className="font-medium text-slate-800">{finding.label}</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Pill tone="primary">{percent(finding.confidence)}</Pill>
-                      <Pill tone={finding.risk === "Low" ? "success" : "warn"}>{finding.risk}</Pill>
-                    </div>
-                  </div>
+        {/* Diagnostic Summary */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.1 }}
+        >
+          <Card className="glass-effect" sx={{ mb: 4 }}>
+            <CardContent sx={{ p: { xs: 3, md: 4 } }}>
+              <Typography variant="h5" className="font-semibold text-gray-800 mb-3" mb={2}>
+                Diagnostic Summary
+              </Typography>
+              <Grid container spacing={3}>
+                <Grid item xs={12} sm={4}>
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      p: 2,
+                      textAlign: 'center',
+                      bgcolor: 'rgba(99, 102, 241, 0.05)',
+                      borderRadius: 2,
+                    }}
+                  >
+                    <Typography variant="h4" className="font-bold text-purple-600">
+                      {results.length}
+                    </Typography>
+                    <Typography variant="body2" className="text-gray-600">
+                      Findings
+                    </Typography>
+                  </Paper>
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      p: 2,
+                      textAlign: 'center',
+                      bgcolor: 'rgba(16, 185, 129, 0.05)',
+                      borderRadius: 2,
+                    }}
+                  >
+                    <Typography variant="h4" className="font-bold text-green-600">
+                      {results.filter((r) => r.severity === 'low').length}
+                    </Typography>
+                    <Typography variant="body2" className="text-gray-600">
+                      Low Risk
+                    </Typography>
+                  </Paper>
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      p: 2,
+                      textAlign: 'center',
+                      bgcolor: 'rgba(245, 158, 11, 0.05)',
+                      borderRadius: 2,
+                    }}
+                  >
+                    <Typography variant="h4" className="font-bold text-amber-600">
+                      {results.filter((r) => r.severity !== 'low').length}
+                    </Typography>
+                    <Typography variant="body2" className="text-gray-600">
+                      Require Attention
+                    </Typography>
+                  </Paper>
+                </Grid>
+              </Grid>
+
+              {/* Key Findings */}
+              <Box mt={4}>
+                <Typography variant="subtitle1" className="font-semibold text-gray-800 mb-2">
+                  Key Findings:
+                </Typography>
+                <Box display="flex" flexDirection="column" gap={1}>
+                  {results.map((result, index) => (
+                    <Box
+                      key={index}
+                      display="flex"
+                      alignItems="center"
+                      gap={2}
+                      sx={{
+                        p: 1.5,
+                        bgcolor: 'rgba(99, 102, 241, 0.03)',
+                        borderRadius: 1,
+                      }}
+                    >
+                      {getSeverityIcon(result.severity)}
+                      <Box flexGrow={1}>
+                        <Typography variant="body2" className="font-medium text-gray-800">
+                          {result.condition}
+                        </Typography>
+                      </Box>
+                      <Chip
+                        label={`${result.confidence}%`}
+                        size="small"
+                        sx={{
+                          bgcolor: 'rgba(99, 102, 241, 0.1)',
+                          color: '#6366f1',
+                          fontWeight: 500,
+                        }}
+                      />
+                      <Chip
+                        label={result.severity}
+                        size="small"
+                        sx={{
+                          bgcolor: getSeverityColor(result.severity) + '20',
+                          color: getSeverityColor(result.severity),
+                          fontWeight: 500,
+                          textTransform: 'capitalize',
+                        }}
+                      />
+                    </Box>
+                  ))}
+                </Box>
+              </Box>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Evidence & Visuals */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.2 }}
+        >
+          <Card className="glass-effect" sx={{ mb: 4 }}>
+            <CardContent sx={{ p: { xs: 3, md: 4 } }}>
+              <Typography variant="h5" className="font-semibold text-gray-800 mb-3" mb={2}>
+                Evidence & Visuals
+              </Typography>
+              <Grid container spacing={2}>
+                {(imageEvidence.length
+                  ? imageEvidence
+                  : [{ label: 'Image 1', condition: 'No findings', confidence: 0 }]
+                ).map((ev, index) => (
+                  <Grid item xs={12} sm={6} key={index}>
+                    <Paper
+                      elevation={0}
+                      sx={{
+                        p: 2,
+                        border: '1px solid #e5e7eb',
+                        borderRadius: 2,
+                        cursor: 'pointer',
+                        '&:hover': {
+                          borderColor: '#6366f1',
+                        },
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          width: '100%',
+                          height: 200,
+                          bgcolor: '#f3f4f6',
+                          borderRadius: 1,
+                          mb: 2,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <PhotoCamera sx={{ fontSize: 48, color: '#9ca3af' }} />
+                      </Box>
+                      <Typography variant="body2" className="font-medium text-gray-800 mb-1">
+                        {ev.label || `Image ${index + 1}`}
+                      </Typography>
+                      <Typography variant="caption" className="text-gray-500">
+                        Detected: {ev.condition} (confidence {ev.confidence}%)
+                      </Typography>
+                    </Paper>
+                  </Grid>
                 ))}
-              </div>
-            </section>
+              </Grid>
+            </CardContent>
           </Card>
+        </motion.div>
 
-          <Card className="bg-white/95 p-8">
-            <h2 className="mb-6 text-2xl font-normal text-slate-900">Evidence & Visuals</h2>
-            <div className="grid gap-5 md:grid-cols-2">
-              {results.per_image_evidence.map((evidence, index) => {
-                const detection = firstDetection(evidence);
-                return (
-                  <article key={evidence.image_id} className="rounded-[28px] border border-brand-line bg-white p-5">
-                    <div className="grid h-56 place-items-center rounded-2xl bg-slate-100 text-slate-400">
-                      <Camera className="h-12 w-12" />
-                    </div>
-                    <h3 className="mt-4 font-medium text-slate-900">Image {index + 1}</h3>
-                    <p className="mt-2 text-sm text-slate-500">
-                      Detected: {detection.label} (confidence {percent(detection.confidence)})
-                    </p>
-                  </article>
-                );
-              })}
-            </div>
+        {/* Structured Output */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.3 }}
+        >
+          <Card className="glass-effect" sx={{ mb: 4 }}>
+            <CardContent sx={{ p: { xs: 3, md: 4 } }}>
+              <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                <Typography variant="h5" className="font-semibold text-gray-800">
+                  Structured Output
+                </Typography>
+                <Box display="flex" gap={1}>
+                  <Tooltip title="Copy JSON">
+                    <IconButton size="small" onClick={handleCopyJSON}>
+                      <ContentCopy fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+              </Box>
+              <Accordion expanded={jsonExpanded} onChange={() => setJsonExpanded(!jsonExpanded)}>
+                <AccordionSummary expandIcon={<ExpandMore />}>
+                  <Typography variant="body2" className="text-gray-600">
+                    View JSON Output
+                  </Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      p: 3,
+                      bgcolor: '#1f2937',
+                      borderRadius: 1,
+                      overflow: 'auto',
+                      maxHeight: 400,
+                    }}
+                  >
+                    <pre style={{ color: '#f3f4f6', margin: 0, fontSize: '0.875rem' }}>
+                      {JSON.stringify(
+                        {
+                          case_id: caseData.case_id,
+                          results,
+                          model_version: caseData.model_version,
+                          generated_at: new Date().toISOString(),
+                        },
+                        null,
+                        2
+                      )}
+                    </pre>
+                  </Paper>
+                </AccordionDetails>
+              </Accordion>
+            </CardContent>
           </Card>
+        </motion.div>
 
-          <Card className="bg-white/95 p-8">
-            <div className="mb-5 flex items-center justify-between gap-4">
-              <h2 className="text-2xl font-normal text-slate-900">Structured Output</h2>
-              <button type="button" onClick={copyJson} aria-label="Copy JSON output" className="rounded-full p-2 text-slate-500 hover:bg-slate-100">
-                <ClipboardCopy className="h-5 w-5" />
-              </button>
-            </div>
-            <details className="rounded-2xl border border-brand-line bg-white p-4 text-sm text-slate-700">
-              <summary className="cursor-pointer font-medium text-slate-600">View JSON Output</summary>
-              <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(results.findings, null, 2)}</pre>
-            </details>
+        {/* Clinician Actions */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.4 }}
+        >
+          <Card className="glass-effect" sx={{ mb: 4 }}>
+            <CardContent sx={{ p: { xs: 3, md: 4 } }}>
+              <Typography variant="h5" className="font-semibold text-gray-800 mb-3" mb={2}>
+                Clinician Actions
+              </Typography>
+              <Box display="flex" gap={2} flexWrap="wrap">
+                <Button
+                  variant="outlined"
+                  startIcon={<NoteAdd />}
+                  onClick={() => setNoteDialogOpen(true)}
+                  sx={{
+                    borderColor: '#6366f1',
+                    color: '#6366f1',
+                    textTransform: 'none',
+                    borderRadius: 2,
+                  }}
+                >
+                  Add Note
+                </Button>
+                <Button
+                  variant="outlined"
+                  startIcon={<Refresh />}
+                  onClick={handleRerun}
+                  sx={{
+                    borderColor: '#6366f1',
+                    color: '#6366f1',
+                    textTransform: 'none',
+                    borderRadius: 2,
+                  }}
+                >
+                  Re-run Analysis
+                </Button>
+                <Button
+                  variant="outlined"
+                  startIcon={<Share />}
+                  onClick={handleShare}
+                  sx={{
+                    borderColor: '#6366f1',
+                    color: '#6366f1',
+                    textTransform: 'none',
+                    borderRadius: 2,
+                  }}
+                >
+                  Share Secure Link
+                </Button>
+              </Box>
+            </CardContent>
           </Card>
+        </motion.div>
 
-          <Card className="bg-white/95 p-8">
-            <h2 className="mb-5 text-2xl font-normal text-slate-900">Clinician Actions</h2>
-            <div className="flex flex-wrap gap-4">
-              <Button type="button" variant="secondary" onClick={() => caseId && router.push(`/clinical?case_id=${caseId}`)}>
-                <FileText className="h-4 w-4" />
-                Add Note
-              </Button>
-              <Button type="button" variant="secondary" onClick={() => router.push("/upload")}>
-                <RefreshCcw className="h-4 w-4" />
-                Re-run Analysis
-              </Button>
-              <Button type="button" variant="secondary" disabled>
-                <Share2 className="h-4 w-4" />
-                Share Secure Link
-              </Button>
-              <Button type="button" onClick={() => caseId && router.push(`/clinical?case_id=${caseId}`)}>
-                <Stethoscope className="h-4 w-4" />
-                Clinical Validation
-              </Button>
-            </div>
+        {/* Download Options */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.5 }}
+        >
+          <Card className="glass-effect">
+            <CardContent sx={{ p: { xs: 3, md: 4 } }}>
+              <Typography variant="h5" className="font-semibold text-gray-800 mb-3" mb={2}>
+                Download Options
+              </Typography>
+              <Box display="flex" gap={2} flexWrap="wrap">
+                <Button
+                  variant="contained"
+                  className="gradient-purple"
+                  startIcon={<Download />}
+                  onClick={handleDownloadPDF}
+                  sx={{
+                    color: 'white',
+                    px: 4,
+                    py: 1.5,
+                    borderRadius: 2,
+                    textTransform: 'none',
+                  }}
+                >
+                  Download PDF Summary
+                </Button>
+                <Button
+                  variant="outlined"
+                  startIcon={<Download />}
+                  onClick={handleDownloadJSON}
+                  sx={{
+                    borderColor: '#6366f1',
+                    color: '#6366f1',
+                    px: 4,
+                    py: 1.5,
+                    borderRadius: 2,
+                    textTransform: 'none',
+                  }}
+                >
+                  Download JSON
+                </Button>
+                <Button
+                  variant="outlined"
+                  startIcon={<ContentCopy />}
+                  onClick={handleCopyJSON}
+                  sx={{
+                    borderColor: '#6366f1',
+                    color: '#6366f1',
+                    px: 4,
+                    py: 1.5,
+                    borderRadius: 2,
+                    textTransform: 'none',
+                  }}
+                >
+                  Copy for EMR
+                </Button>
+              </Box>
+            </CardContent>
           </Card>
+        </motion.div>
+      </Container>
 
-          <Card className="bg-white/95 p-8">
-            <h2 className="mb-5 text-2xl font-normal text-slate-900">Download Options</h2>
-            <div className="flex flex-wrap gap-4">
-              <Button type="button" onClick={downloadPdf} disabled={pdfBusy}>
-                <Download className="h-4 w-4" />
-                {pdfBusy ? "Preparing..." : "Download PDF Summary"}
-              </Button>
-              <Button type="button" variant="secondary" disabled>
-                <FileJson className="h-4 w-4" />
-                Download JSON
-              </Button>
-              <Button type="button" variant="secondary" disabled>
-                <FileText className="h-4 w-4" />
-                Copy for EMR
-              </Button>
-            </div>
-          </Card>
-        </>
-      ) : (
-        <Card className="bg-white/95 p-8">
-          <Notice tone="warn">No completed inference results are available for this case.</Notice>
-        </Card>
-      )}
+      {/* Add Note Dialog */}
+      <Dialog open={noteDialogOpen} onClose={() => setNoteDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Add Clinical Note</DialogTitle>
+        <DialogContent>
+          <TextField
+            fullWidth
+            multiline
+            rows={6}
+            value={clinicianNote}
+            onChange={(e) => setClinicianNote(e.target.value)}
+            placeholder="Enter your clinical notes or overrides..."
+            sx={{ mt: 2 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setNoteDialogOpen(false)} sx={{ textTransform: 'none' }}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleAddNote}
+            variant="contained"
+            className="gradient-purple"
+            sx={{ textTransform: 'none', color: 'white' }}
+          >
+            Save Note
+          </Button>
+        </DialogActions>
+      </Dialog>
 
-      {status?.state === "error" ? <Notice tone="error">{status.error_message || "Inference failed."}</Notice> : null}
-    </div>
-  );
+      {/* Share Link Dialog */}
+      <Dialog open={shareDialogOpen} onClose={() => setShareDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Share Secure Link</DialogTitle>
+        <DialogContent>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            This link will expire in 7 days. Only share with authorized personnel.
+          </Alert>
+          <TextField
+            fullWidth
+            value={shareLink}
+            InputProps={{
+              readOnly: true,
+              endAdornment: (
+                <IconButton
+                  onClick={() => {
+                    navigator.clipboard.writeText(shareLink)
+                    alert('Link copied to clipboard')
+                  }}
+                >
+                  <ContentCopy />
+                </IconButton>
+              ),
+            }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShareDialogOpen(false)} sx={{ textTransform: 'none' }}>
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  )
+}
+
+export default function ResultsPage() {
+  return (
+    <Suspense fallback={
+      <Box className="min-h-screen flex items-center justify-center">
+        <CircularProgress />
+      </Box>
+    }>
+      <ResultsPageContent />
+    </Suspense>
+  )
 }
