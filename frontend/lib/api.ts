@@ -107,6 +107,13 @@ export interface CaseResultsResponse {
   created_at: string
 }
 
+export interface ExplanationResponse {
+  case_id: number
+  explanation: string
+  source: 'openai' | 'fallback'
+  model_version: string
+}
+
 export interface CaseNoteCreate {
   content: string
 }
@@ -276,6 +283,19 @@ export const casesAPI = {
     const response = await apiFetch(`/api/v1/cases/${caseId}`, { method: 'GET' })
     return response.json()
   },
+
+  // Fetch an uploaded image (auth-protected) and return an object URL for <img>.
+  async getImageObjectUrl(caseId: number, imageId: number): Promise<string> {
+    const token = getAuthToken()
+    const headers: Record<string, string> = {}
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    const response = await fetch(
+      `${API_BASE_URL}/api/v1/cases/${caseId}/images/${imageId}`,
+      { headers },
+    )
+    if (!response.ok) throw new Error(`Failed to load image ${imageId}: ${response.status}`)
+    return URL.createObjectURL(await response.blob())
+  },
 }
 
 // Inference API
@@ -306,6 +326,13 @@ export const inferenceAPI = {
 export const resultsAPI = {
   async getResults(caseId: number): Promise<CaseResultsResponse> {
     const response = await apiFetch(`/api/v1/cases/${caseId}/results`, {
+      method: 'GET',
+    })
+    return response.json()
+  },
+
+  async getExplanation(caseId: number): Promise<ExplanationResponse> {
+    const response = await apiFetch(`/api/v1/cases/${caseId}/explanation`, {
       method: 'GET',
     })
     return response.json()

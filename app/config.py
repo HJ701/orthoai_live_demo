@@ -35,7 +35,12 @@ class Settings(BaseSettings):
     dev_mock_inference: bool = False
     dev_expose_otp: bool = False
     enable_local_storage_fallback: bool = True
-    
+
+    # OpenAI (findings "Structured Output" narrative explanation)
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
+    openai_timeout_seconds: int = 30
+
     # PDF Signing
     pdf_signing_key_path: Optional[str] = None
     pdf_signing_cert_path: Optional[str] = None

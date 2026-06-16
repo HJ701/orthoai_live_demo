@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request, Response
 from sqlalchemy.orm import Session
 from typing import List, Dict
 from botocore.exceptions import ClientError, BotoCoreError
@@ -9,7 +9,7 @@ from app.models import Case, Image, InferenceJob, JobState
 from app.schemas import CaseCreate, CaseResponse, ImageUploadResponse, ImageResponse, CaseNoteCreate, CaseNoteResponse
 from app.api.deps import get_current_user_dependency, get_case_dependency
 from app.core.audit import log_audit_event
-from app.core.s3_storage import delete_file_from_s3, upload_file_to_s3
+from app.core.s3_storage import delete_file_from_s3, upload_file_to_s3, download_file_from_s3
 from app.celery_app import celery_app
 from app.config import settings
 import logging
@@ -255,8 +255,42 @@ def upload_images(
         )
     
     db.commit()
-    
+
     return ImageUploadResponse(image_ids=image_ids)
+
+
+@router.get("/{case_id}/images/{image_id}")
+def get_case_image(
+    case_id: int,
+    image_id: int,
+    db: Session = Depends(get_db),
+    case: Case = Depends(get_case_dependency),
+):
+    """Stream a case image (auth + ownership enforced). Used by the results
+    'Evidence & Visuals' section. Reads from S3 or local storage."""
+    image = db.query(Image).filter(
+        Image.id == image_id,
+        Image.case_id == case_id,
+    ).first()
+    if not image or not image.file_path:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
+
+    try:
+        data = download_file_from_s3(image.file_path)
+    except FileNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image data not found")
+    except (ClientError, BotoCoreError, ValueError) as e:
+        logger.error("Failed to read image %s: %s", image_id, e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to read image from storage",
+        )
+
+    return Response(
+        content=data,
+        media_type=image.content_type or "image/jpeg",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
 
 
 @router.post("/{case_id}/notes", response_model=CaseNoteResponse, status_code=status.HTTP_201_CREATED)

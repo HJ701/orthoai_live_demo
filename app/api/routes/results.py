@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
 from sqlalchemy.orm import Session
+from typing import Dict
 import json
 from app.database import get_db
+from app.core.explanation import generate_explanation
 from app.models import InferenceResult, InferenceJob, ImageEvidence, Finding, Image, JobState
 from app.schemas import CaseResultsResponse, ImageEvidenceResponse
 from app.api.deps import get_current_user_dependency, get_case_dependency
@@ -205,3 +207,53 @@ def download_pdf_summary(
             "Content-Disposition": f"attachment; filename=case_{case_id}_summary.pdf"
         }
     )
+
+
+# In-process cache of generated explanations, keyed by inference result id, so we
+# don't re-call the LLM (and re-spend) on every results view.
+_explanation_cache: Dict[int, dict] = {}
+
+
+@router.get("/cases/{case_id}/explanation")
+def get_case_explanation(
+    request: Request,
+    case_id: int,
+    db: Session = Depends(get_db),
+    case = Depends(get_case_dependency),
+):
+    """LLM 'Structured Output': a clinician-facing narrative grounded in the
+    case's actual malocclusion prediction. Uses OpenAI when configured, else a
+    faithful deterministic fallback."""
+    job = db.query(InferenceJob).filter(
+        InferenceJob.case_id == case_id,
+        InferenceJob.state == JobState.DONE,
+    ).order_by(InferenceJob.completed_at.desc()).first()
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No completed inference results found for this case",
+        )
+    result = db.query(InferenceResult).filter(InferenceResult.job_id == job.id).first()
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Results not found")
+
+    if result.id in _explanation_cache:
+        return _explanation_cache[result.id]
+
+    findings_dict = json.loads(result.findings) if result.findings else {}
+    prediction = findings_dict.get("prediction") or {}
+    if not prediction.get("predicted_class"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No malocclusion prediction available to explain",
+        )
+
+    text, source = generate_explanation(prediction, result.model_version)
+    payload = {
+        "case_id": case_id,
+        "explanation": text,
+        "source": source,
+        "model_version": result.model_version,
+    }
+    _explanation_cache[result.id] = payload
+    return payload

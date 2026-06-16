@@ -23,7 +23,6 @@ import {
   DialogActions,
   IconButton,
   Tooltip,
-  Alert,
   CircularProgress,
 } from '@mui/material'
 import {
@@ -33,7 +32,6 @@ import {
   ArrowBack,
   Download,
   Refresh,
-  Share,
   NoteAdd,
   ExpandMore,
   ContentCopy,
@@ -42,6 +40,7 @@ import {
 } from '@mui/icons-material'
 import { motion } from 'framer-motion'
 import { displayClass } from '@/lib/format'
+import { Stethoscope } from 'lucide-react'
 
 interface DiagnosticResult {
   condition: string
@@ -108,40 +107,52 @@ function ResultsPageContent() {
 
   const [results, setResults] = useState<DiagnosticResult[]>([])
   const [imageEvidence, setImageEvidence] = useState<
-    { label: string; condition: string; confidence: number }[]
+    { imageId: number; label: string; condition: string; confidence: number }[]
   >([])
+  const [evidenceImages, setEvidenceImages] = useState<Record<number, string>>({})
+  const [explanation, setExplanation] = useState<string>('')
+  const [explanationSource, setExplanationSource] = useState<string>('')
+  const [explanationLoading, setExplanationLoading] = useState(true)
   const [caseData, setCaseData] = useState<CaseData | null>(null)
   const [jsonExpanded, setJsonExpanded] = useState(false)
   const [noteDialogOpen, setNoteDialogOpen] = useState(false)
-  const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [clinicianNote, setClinicianNote] = useState('')
-  const [shareLink, setShareLink] = useState('')
 
   useEffect(() => {
     const loadResults = async () => {
       try {
-        const { resultsAPI } = await import('@/lib/api')
+        const { resultsAPI, casesAPI } = await import('@/lib/api')
         // Case ID from URL might be numeric or have CASE- prefix
-        const caseIdNum = caseId.startsWith('CASE-') 
-          ? parseInt(caseId.replace('CASE-', '')) 
+        const caseIdNum = caseId.startsWith('CASE-')
+          ? parseInt(caseId.replace('CASE-', ''))
           : parseInt(caseId)
-        
+
         // Fetch results from API
         const apiResults = await resultsAPI.getResults(caseIdNum)
 
-        // Load case data from sessionStorage
+        // Fetch THIS case's own details so the header reflects the case being
+        // viewed — not the last-uploaded case cached in sessionStorage (which
+        // made different cases look identical).
+        const caseDetail = await casesAPI.getCase(caseIdNum).catch(() => null)
+
+        // sessionStorage only as a last-resort fallback for older cases
         const storedCase = sessionStorage.getItem('currentCase')
         let parsedCase: any = {}
         if (storedCase) {
-          parsedCase = JSON.parse(storedCase)
+          try {
+            const sc = JSON.parse(storedCase)
+            if (sc.case_id === String(caseIdNum)) parsedCase = sc
+          } catch {
+            /* ignore */
+          }
         }
 
-        // Set case data
+        // Set case data (prefer the case's own backend fields)
         setCaseData({
           case_id: String(apiResults.case_id),
-          patient_id: parsedCase.patient_id || '—',
-          case_title: parsedCase.case_title || 'Case Analysis',
-          modality_tags: parsedCase.modality_tags || [],
+          patient_id: caseDetail?.patient_id || parsedCase.patient_id || '—',
+          case_title: caseDetail?.title || parsedCase.case_title || 'Case Analysis',
+          modality_tags: caseDetail?.tags || parsedCase.modality_tags || [],
           created_at: apiResults.created_at,
           model_version: apiResults.model_version,
           model_checksum: 'sha256:abc123def456...', // Backend doesn't return this yet
@@ -153,7 +164,7 @@ function ResultsPageContent() {
         // echoing that prediction per image. Class names are numeric ("0/1/2")
         // from the real model, or readable from the mock — displayClass handles both.
         const transformedResults: DiagnosticResult[] = []
-        const evidenceSummaries: { label: string; condition: string; confidence: number }[] = []
+        const evidenceSummaries: { imageId: number; label: string; condition: string; confidence: number }[] = []
         const prediction = (apiResults.findings as any)?.prediction
 
         // Per-image evidence cards (one per uploaded image), readable class names
@@ -163,6 +174,7 @@ function ResultsPageContent() {
             : []
           const top = detections[0]
           evidenceSummaries.push({
+            imageId: evidence.image_id,
             label: evidence.filename || `Image ${idx + 1}`,
             condition: displayClass(top?.type ?? prediction?.predicted_class ?? 'No findings'),
             confidence: Math.round(((top?.confidence ?? evidence.confidence) || 0) * 100),
@@ -199,6 +211,26 @@ function ResultsPageContent() {
 
         setImageEvidence(evidenceSummaries)
 
+        // Fetch the actual uploaded images (first 3) for Evidence & Visuals
+        evidenceSummaries.slice(0, 3).forEach(async (ev) => {
+          try {
+            const url = await casesAPI.getImageObjectUrl(caseIdNum, ev.imageId)
+            setEvidenceImages((prev) => ({ ...prev, [ev.imageId]: url }))
+          } catch {
+            /* leave placeholder if an image fails to load */
+          }
+        })
+
+        // Fetch the LLM "Structured Output" narrative explanation
+        resultsAPI
+          .getExplanation(caseIdNum)
+          .then((e) => {
+            setExplanation(e.explanation)
+            setExplanationSource(e.source)
+          })
+          .catch(() => setExplanation(''))
+          .finally(() => setExplanationLoading(false))
+
         // Fallback to sample results only if the backend returned nothing usable
         if (transformedResults.length === 0) {
           setResults(SAMPLE_RESULTS)
@@ -207,6 +239,7 @@ function ResultsPageContent() {
         }
       } catch (err: any) {
         console.error('Failed to load results:', err)
+        setExplanationLoading(false)
         // Fallback to sample data on error
         const storedCase = sessionStorage.getItem('currentCase')
         if (storedCase) {
@@ -316,13 +349,6 @@ function ResultsPageContent() {
     } catch (err: any) {
       alert(`Failed to save note: ${err.message}`)
     }
-  }
-
-  const handleShare = () => {
-    // Generate time-limited share link
-    const link = `${window.location.origin}/results?case_id=${caseId}&token=${Date.now()}`
-    setShareLink(link)
-    setShareDialogOpen(true)
   }
 
   const handleRerun = async () => {
@@ -545,35 +571,41 @@ function ResultsPageContent() {
               </Typography>
               <Grid container spacing={2}>
                 {(imageEvidence.length
-                  ? imageEvidence
-                  : [{ label: 'Image 1', condition: 'No findings', confidence: 0 }]
+                  ? imageEvidence.slice(0, 3)
+                  : [{ imageId: -1, label: 'Image 1', condition: 'No findings', confidence: 0 }]
                 ).map((ev, index) => (
-                  <Grid item xs={12} sm={6} key={index}>
+                  <Grid item xs={12} sm={imageEvidence.length > 1 ? 6 : 12} key={index}>
                     <Paper
                       elevation={0}
                       sx={{
                         p: 2,
                         border: '1px solid #e5e7eb',
                         borderRadius: 2,
-                        cursor: 'pointer',
-                        '&:hover': {
-                          borderColor: '#6366f1',
-                        },
                       }}
                     >
                       <Box
                         sx={{
                           width: '100%',
-                          height: 200,
-                          bgcolor: '#f3f4f6',
+                          height: 220,
+                          bgcolor: '#0b0f19',
                           borderRadius: 1,
                           mb: 2,
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
+                          overflow: 'hidden',
                         }}
                       >
-                        <PhotoCamera sx={{ fontSize: 48, color: '#9ca3af' }} />
+                        {evidenceImages[ev.imageId] ? (
+                          <Box
+                            component="img"
+                            src={evidenceImages[ev.imageId]}
+                            alt={ev.label}
+                            sx={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                          />
+                        ) : (
+                          <PhotoCamera sx={{ fontSize: 48, color: '#6b7280' }} />
+                        )}
                       </Box>
                       <Typography variant="body2" className="font-medium text-gray-800 mb-1">
                         {ev.label || `Image ${index + 1}`}
@@ -598,21 +630,59 @@ function ResultsPageContent() {
           <Card className="glass-effect" sx={{ mb: 4 }}>
             <CardContent sx={{ p: { xs: 3, md: 4 } }}>
               <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                <Typography variant="h5" className="font-semibold text-gray-800">
-                  Structured Output
-                </Typography>
-                <Box display="flex" gap={1}>
-                  <Tooltip title="Copy JSON">
-                    <IconButton size="small" onClick={handleCopyJSON}>
-                      <ContentCopy fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
+                <Box display="flex" alignItems="center" gap={1.5}>
+                  <Typography variant="h5" className="font-semibold text-gray-800">
+                    Structured Output
+                  </Typography>
+                  {!explanationLoading && explanation && (
+                    <Chip
+                      size="small"
+                      label={explanationSource === 'openai' ? 'AI-generated' : 'Auto-generated'}
+                      sx={{ bgcolor: 'rgba(99,102,241,0.1)', color: '#6366f1', fontWeight: 500 }}
+                    />
+                  )}
                 </Box>
+                <Tooltip title="Copy JSON">
+                  <IconButton size="small" onClick={handleCopyJSON}>
+                    <ContentCopy fontSize="small" />
+                  </IconButton>
+                </Tooltip>
               </Box>
+
+              {/* LLM narrative explanation of the findings */}
+              {explanationLoading ? (
+                <Box display="flex" alignItems="center" gap={1.5} sx={{ py: 2 }}>
+                  <CircularProgress size={18} />
+                  <Typography variant="body2" className="text-gray-500">
+                    Generating clinical explanation…
+                  </Typography>
+                </Box>
+              ) : explanation ? (
+                <Paper elevation={0} sx={{ p: 3, bgcolor: '#f9fafb', borderRadius: 2, mb: 2 }}>
+                  <Typography
+                    variant="body1"
+                    sx={{ color: '#374151', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}
+                  >
+                    {explanation}
+                  </Typography>
+                </Paper>
+              ) : (
+                <Typography variant="body2" className="text-gray-500" sx={{ mb: 2 }}>
+                  Explanation unavailable for this case.
+                </Typography>
+              )}
+              <Typography
+                variant="caption"
+                className="text-gray-400"
+                sx={{ display: 'block', mb: 2 }}
+              >
+                AI-assisted decision support — review and validate before any clinical decision.
+              </Typography>
+
               <Accordion expanded={jsonExpanded} onChange={() => setJsonExpanded(!jsonExpanded)}>
                 <AccordionSummary expandIcon={<ExpandMore />}>
                   <Typography variant="body2" className="text-gray-600">
-                    View JSON Output
+                    View raw JSON output
                   </Typography>
                 </AccordionSummary>
                 <AccordionDetails>
@@ -653,22 +723,33 @@ function ResultsPageContent() {
         >
           <Card className="glass-effect" sx={{ mb: 4 }}>
             <CardContent sx={{ p: { xs: 3, md: 4 } }}>
-              <Typography variant="h5" className="font-semibold text-gray-800 mb-3" mb={2}>
-                Clinician Actions
+              <Typography variant="h5" className="font-semibold text-gray-800 mb-1">
+                Clinical Validation
+              </Typography>
+              <Typography variant="body2" className="text-gray-600" sx={{ mb: 2 }}>
+                Record your own clinical assessment for this case alongside the OrthoAI output —
+                enter your diagnosis, agreement, and notes without leaving the workflow.
               </Typography>
               <Box display="flex" gap={2} flexWrap="wrap">
                 <Button
-                  variant="outlined"
-                  startIcon={<NoteAdd />}
-                  onClick={() => setNoteDialogOpen(true)}
+                  variant="contained"
+                  className="gradient-purple"
+                  startIcon={<Stethoscope size={18} />}
+                  onClick={() => {
+                    if (typeof window !== 'undefined') {
+                      sessionStorage.setItem('caseId', String(caseData.case_id))
+                    }
+                    router.push(`/clinical?case_id=${caseData.case_id}`)
+                  }}
                   sx={{
-                    borderColor: '#6366f1',
-                    color: '#6366f1',
+                    color: 'white',
                     textTransform: 'none',
                     borderRadius: 2,
+                    px: 3,
+                    py: 1.25,
                   }}
                 >
-                  Add Note
+                  Start Clinical Validation
                 </Button>
                 <Button
                   variant="outlined"
@@ -685,8 +766,8 @@ function ResultsPageContent() {
                 </Button>
                 <Button
                   variant="outlined"
-                  startIcon={<Share />}
-                  onClick={handleShare}
+                  startIcon={<NoteAdd />}
+                  onClick={() => setNoteDialogOpen(true)}
                   sx={{
                     borderColor: '#6366f1',
                     color: '#6366f1',
@@ -694,7 +775,7 @@ function ResultsPageContent() {
                     borderRadius: 2,
                   }}
                 >
-                  Share Secure Link
+                  Add Note
                 </Button>
               </Box>
             </CardContent>
@@ -789,38 +870,6 @@ function ResultsPageContent() {
             sx={{ textTransform: 'none', color: 'white' }}
           >
             Save Note
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Share Link Dialog */}
-      <Dialog open={shareDialogOpen} onClose={() => setShareDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Share Secure Link</DialogTitle>
-        <DialogContent>
-          <Alert severity="info" sx={{ mb: 2 }}>
-            This link will expire in 7 days. Only share with authorized personnel.
-          </Alert>
-          <TextField
-            fullWidth
-            value={shareLink}
-            InputProps={{
-              readOnly: true,
-              endAdornment: (
-                <IconButton
-                  onClick={() => {
-                    navigator.clipboard.writeText(shareLink)
-                    alert('Link copied to clipboard')
-                  }}
-                >
-                  <ContentCopy />
-                </IconButton>
-              ),
-            }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setShareDialogOpen(false)} sx={{ textTransform: 'none' }}>
-            Close
           </Button>
         </DialogActions>
       </Dialog>
