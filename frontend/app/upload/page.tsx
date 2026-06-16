@@ -97,9 +97,12 @@ export default function UploadPage() {
       const caseResponse = await casesAPI.createCase(caseData)
       const caseId = caseResponse.id
 
-      // Step 2: Upload images
-      const imageFiles = images.map(img => img.file)
-      await casesAPI.uploadImages(caseId, imageFiles)
+      // Step 2: Upload images (carry the chosen modality so the backend can
+      // classify the X-ray vs RGB intra-oral correctly)
+      await casesAPI.uploadImages(
+        caseId,
+        images.map((img) => ({ file: img.file, modality: img.modality })),
+      )
 
       // Step 3: Store case metadata in sessionStorage for reference (backward compatibility)
       const storedCaseData = {

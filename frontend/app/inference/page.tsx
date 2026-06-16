@@ -18,7 +18,7 @@ import {
   DialogActions,
   Alert,
 } from '@mui/material'
-import { Cancel, CheckCircle } from '@mui/icons-material'
+import { Cancel, CheckCircle, ErrorOutline, ArrowBack } from '@mui/icons-material'
 import { motion } from 'framer-motion'
 
 type Status = 'queued' | 'processing' | 'generating' | 'completed' | 'failed'
@@ -155,6 +155,8 @@ function InferencePageContent() {
 
   const currentStep = STATUS_STEPS.find((step) => step.status === currentStatus) || STATUS_STEPS[0]
   const currentStepIndex = STATUS_STEPS.findIndex((step) => step.status === currentStatus)
+  const failed = currentStatus === 'failed'
+  const needsXray = failed && /xray|opg/i.test(error || '')
 
   return (
     <Box
@@ -236,17 +238,10 @@ function InferencePageContent() {
                   })}
                 </Box>
 
-                {/* Animated Progress Orb */}
+                {/* Orb: animated while running, static error orb on failure */}
                 <motion.div
-                  animate={{
-                    scale: [1, 1.1, 1],
-                    opacity: [0.8, 1, 0.8],
-                  }}
-                  transition={{
-                    duration: 2,
-                    repeat: Infinity,
-                    ease: 'easeInOut',
-                  }}
+                  animate={failed ? { scale: 1, opacity: 1 } : { scale: [1, 1.1, 1], opacity: [0.8, 1, 0.8] }}
+                  transition={failed ? { duration: 0.3 } : { duration: 2, repeat: Infinity, ease: 'easeInOut' }}
                   className="mb-6"
                 >
                   <Box
@@ -254,115 +249,141 @@ function InferencePageContent() {
                       width: { xs: 120, md: 160 },
                       height: { xs: 120, md: 160 },
                       borderRadius: '50%',
-                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)',
+                      background: failed
+                        ? 'linear-gradient(135deg, #f87171 0%, #ef4444 100%)'
+                        : 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      boxShadow: '0 20px 60px rgba(99, 102, 241, 0.4)',
+                      boxShadow: failed
+                        ? '0 20px 60px rgba(239, 68, 68, 0.4)'
+                        : '0 20px 60px rgba(99, 102, 241, 0.4)',
                       position: 'relative',
                     }}
                   >
-                    <motion.div
-                      animate={{ rotate: 360 }}
-                      transition={{
-                        duration: 3,
-                        repeat: Infinity,
-                        ease: 'linear',
-                      }}
-                    >
-                      <CircularProgress
-                        variant="determinate"
-                        value={progress}
-                        size={140}
-                        thickness={2}
-                        sx={{
-                          color: 'white',
-                          position: 'absolute',
-                        }}
-                      />
-                    </motion.div>
-                    <Typography
-                      variant="h4"
-                      className="font-bold text-white"
-                      sx={{ fontSize: { xs: '2rem', md: '2.5rem' } }}
-                    >
-                      {progress}%
-                    </Typography>
+                    {failed ? (
+                      <ErrorOutline sx={{ color: 'white', fontSize: { xs: 56, md: 72 } }} />
+                    ) : (
+                      <>
+                        <motion.div
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
+                        >
+                          <CircularProgress
+                            variant="determinate"
+                            value={progress}
+                            size={140}
+                            thickness={2}
+                            sx={{ color: 'white', position: 'absolute' }}
+                          />
+                        </motion.div>
+                        <Typography
+                          variant="h4"
+                          className="font-bold text-white"
+                          sx={{ fontSize: { xs: '2rem', md: '2.5rem' } }}
+                        >
+                          {progress}%
+                        </Typography>
+                      </>
+                    )}
                   </Box>
                 </motion.div>
 
-                {/* Progress Bar */}
-                <Box sx={{ width: '100%', mb: 4 }}>
-                  <LinearProgress
-                    variant="determinate"
-                    value={progress}
-                    sx={{
-                      height: 8,
-                      borderRadius: 4,
-                      bgcolor: 'rgba(99, 102, 241, 0.1)',
-                      '& .MuiLinearProgress-bar': {
+                {/* Progress Bar (hidden on failure) */}
+                {!failed && (
+                  <Box sx={{ width: '100%', mb: 4 }}>
+                    <LinearProgress
+                      variant="determinate"
+                      value={progress}
+                      sx={{
+                        height: 8,
                         borderRadius: 4,
-                        background: 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)',
-                      },
-                    }}
-                  />
-                </Box>
+                        bgcolor: 'rgba(99, 102, 241, 0.1)',
+                        '& .MuiLinearProgress-bar': {
+                          borderRadius: 4,
+                          background: 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)',
+                        },
+                      }}
+                    />
+                  </Box>
+                )}
 
                 {/* Current Status Description */}
                 <Typography
                   variant="h6"
-                  className="font-semibold text-gray-800 mb-2"
-                  sx={{ fontSize: { xs: '1.25rem', md: '1.5rem' }, textAlign: 'center' }}
+                  className="font-semibold mb-2"
+                  sx={{
+                    fontSize: { xs: '1.25rem', md: '1.5rem' },
+                    textAlign: 'center',
+                    color: failed ? '#dc2626' : '#1f2937',
+                  }}
                 >
-                  {currentStep.description}
+                  {failed ? 'Analysis could not be completed' : currentStep.description}
                 </Typography>
 
-                {/* Estimated Time */}
-                {estimatedTime !== null && estimatedTime > 0 && (
+                {/* Estimated Time (running only) */}
+                {!failed && estimatedTime !== null && estimatedTime > 0 && (
                   <Typography variant="body2" className="text-gray-500 mb-4">
                     Estimated time remaining: {Math.floor(estimatedTime / 60)}:
                     {String(estimatedTime % 60).padStart(2, '0')}
                   </Typography>
                 )}
 
-                {/* Error Message */}
+                {/* Error Message + guidance */}
                 {error && (
-                  <Alert severity="error" sx={{ mb: 4, width: '100%' }}>
+                  <Alert severity="error" sx={{ mt: 2, mb: 2, width: '100%' }}>
                     {error}
+                    {needsXray && (
+                      <Typography variant="body2" sx={{ mt: 1 }}>
+                        Re-upload the case and include the panoramic X-ray (OPG). Mark it as
+                        “OPG (Panoramic)” — grayscale X-rays are detected automatically.
+                      </Typography>
+                    )}
                   </Alert>
                 )}
 
-                {/* Cancel Button */}
-                <Button
-                  variant="outlined"
-                  startIcon={<Cancel />}
-                  onClick={handleCancel}
-                  sx={{
-                    borderColor: '#ef4444',
-                    color: '#ef4444',
-                    mt: 2,
-                    mb: 2,
-                    px: 4,
-                    py: 1.5,
-                    borderRadius: 2,
-                    textTransform: 'none',
-                    '&:hover': {
-                      borderColor: '#dc2626',
-                      bgcolor: 'rgba(239, 68, 68, 0.05)',
-                    },
-                  }}
-                >
-                  Cancel Analysis
-                </Button>
+                {/* Actions */}
+                {failed ? (
+                  <Button
+                    variant="contained"
+                    className="gradient-purple"
+                    startIcon={<ArrowBack />}
+                    onClick={() => router.push('/upload')}
+                    sx={{ color: 'white', mt: 1, mb: 1, px: 4, py: 1.5, borderRadius: 2, textTransform: 'none' }}
+                  >
+                    Back to Upload
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outlined"
+                    startIcon={<Cancel />}
+                    onClick={handleCancel}
+                    sx={{
+                      borderColor: '#ef4444',
+                      color: '#ef4444',
+                      mt: 2,
+                      mb: 2,
+                      px: 4,
+                      py: 1.5,
+                      borderRadius: 2,
+                      textTransform: 'none',
+                      '&:hover': { borderColor: '#dc2626', bgcolor: 'rgba(239, 68, 68, 0.05)' },
+                    }}
+                  >
+                    Cancel Analysis
+                  </Button>
+                )}
 
-                {/* Background Navigation Notice */}
-                <Typography
-                  variant="caption"
-                  className="text-gray-400 mt-4 text-center"
-                  sx={{ maxWidth: '400px' }}
-                >
-                  You can navigate away safely. Progress will continue in the background.
-                </Typography>
+                {/* Background Navigation Notice (running only) */}
+                {!failed && (
+                  <Typography
+                    variant="caption"
+                    className="text-gray-400 mt-4 text-center"
+                    sx={{ maxWidth: '400px' }}
+                  >
+                    You can navigate away safely. Progress will continue in the background.
+                  </Typography>
+                )}
               </Box>
             </CardContent>
           </Card>

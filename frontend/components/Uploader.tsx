@@ -33,6 +33,46 @@ const MODALITY_OPTIONS = [
   'Other',
 ]
 
+// Heuristic X-ray detector: a near-grayscale image is almost certainly an
+// OPG/panoramic X-ray. Used to auto-tag modality so uploads satisfy the model's
+// "at least one X-ray" requirement without the clinician naming files manually.
+async function looksLikeXray(file: File): Promise<boolean> {
+  if (typeof window === 'undefined' || !file.type.startsWith('image/')) return false
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file)
+    const img = new window.Image()
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = 64
+        canvas.height = 64
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return resolve(false)
+        ctx.drawImage(img, 0, 0, 64, 64)
+        const { data } = ctx.getImageData(0, 0, 64, 64)
+        let spread = 0
+        let n = 0
+        for (let i = 0; i < data.length; i += 4) {
+          spread +=
+            Math.max(data[i], data[i + 1], data[i + 2]) -
+            Math.min(data[i], data[i + 1], data[i + 2])
+          n++
+        }
+        resolve(n > 0 && spread / n < 18)
+      } catch {
+        resolve(false)
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      resolve(false)
+    }
+    img.src = url
+  })
+}
+
 interface UploaderProps {
   images: ImageFile[]
   errors: Record<string, string>
@@ -58,22 +98,29 @@ export default function Uploader({
     return 'RGB Intra-oral'
   }
 
-  const handleFiles = (files: File[]) => {
+  const handleFiles = async (files: File[]) => {
     const imageFiles = files.filter(
       (file) => file.type.startsWith('image/') || file.name.toLowerCase().endsWith('.dcm')
     )
 
-    const newImages: ImageFile[] = imageFiles.map((file) => ({
-      file,
-      modality: detectModality(file.name),
-      preview: URL.createObjectURL(file),
-    }))
+    const newImages: ImageFile[] = await Promise.all(
+      imageFiles.map(async (file) => {
+        let modality = detectModality(file.name)
+        // If the filename didn't flag an X-ray, sniff the pixels: a near
+        // grayscale image is almost certainly an OPG/panoramic X-ray. This makes
+        // the model's "X-ray required" rule satisfied without manual tagging.
+        if (modality === 'RGB Intra-oral' && (await looksLikeXray(file))) {
+          modality = 'OPG (Panoramic)'
+        }
+        return { file, modality, preview: URL.createObjectURL(file) }
+      })
+    )
 
     const updatedImages = [...images, ...newImages]
     onImagesChange(updatedImages)
-    
+
     // Auto-add detected modalities to tags
-    const detectedModalities = new Set(newImages.map(img => img.modality))
+    const detectedModalities = new Set(newImages.map((img) => img.modality))
     onModalityTagsChange(Array.from(detectedModalities))
   }
 

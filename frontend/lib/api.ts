@@ -56,6 +56,21 @@ export interface ImageUploadResponse {
   image_ids: number[]
 }
 
+export interface UploadImage {
+  file: File
+  modality?: string
+}
+
+// Map a UI modality label to a filename prefix the backend recognises as an
+// X-ray. RGB / Other get no prefix (treated as RGB intra-oral).
+function modalityFilenamePrefix(modality?: string): string {
+  const m = (modality || '').toLowerCase()
+  if (m.includes('opg') || m.includes('panoramic')) return 'opg_'
+  if (m.includes('ceph')) return 'ceph_'
+  if (m.includes('cbct')) return 'xray_'
+  return ''
+}
+
 export interface InferenceRequest {
   case_id: number
 }
@@ -197,11 +212,18 @@ export const casesAPI = {
 
   async uploadImages(
     caseId: number,
-    files: File[]
+    files: UploadImage[]
   ): Promise<ImageUploadResponse> {
     const formData = new FormData()
-    files.forEach((file) => {
-      formData.append('files', file)
+    files.forEach(({ file, modality }) => {
+      // The backend infers modality from the filename (opg/panoramic/xray/ceph
+      // => X-ray, else RGB). Encode the user-selected modality as a prefix so
+      // the dropdown choice actually drives classification.
+      const prefix = modalityFilenamePrefix(modality)
+      const name = prefix && !file.name.toLowerCase().startsWith(prefix)
+        ? `${prefix}${file.name}`
+        : file.name
+      formData.append('files', file, name)
     })
 
     const token = getAuthToken()
