@@ -64,6 +64,10 @@ jobs:
         id: backend-task
         env:
           IMAGE_URI: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          # Set this as a GitHub Actions repository secret to enable the LLM
+          # "Structured Output". If unset it resolves to an empty string and the
+          # backend transparently uses its deterministic fallback narrative.
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           aws ecs describe-task-definition \
             --task-definition medical-ai-production-backend \
@@ -73,7 +77,8 @@ jobs:
             --arg image "$IMAGE_URI" \
             --arg clinicalEfsId "$CLINICAL_EFS_ID" \
             --arg clinicalAccessPointId "$CLINICAL_EFS_ACCESS_POINT_ID" \
-            --arg clinicalDbPath "$CLINICAL_DB_PATH" '
+            --arg clinicalDbPath "$CLINICAL_DB_PATH" \
+            --arg openaiKey "$OPENAI_API_KEY" '
             def set_env($name; $value):
               .environment = ((.environment // []) | map(select(.name != $name)) + [{"name": $name, "value": $value}]);
             def set_mount($source; $path):
@@ -82,6 +87,7 @@ jobs:
               if .name == "backend" then
                 .image = $image
                 | set_env("ORTHOAI_CLINICAL_DB"; $clinicalDbPath)
+                | set_env("OPENAI_API_KEY"; $openaiKey)
                 | set_mount("clinical-data"; "/mnt/clinical")
               else
                 .
