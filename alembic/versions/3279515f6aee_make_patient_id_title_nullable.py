@@ -18,55 +18,100 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Get connection to execute raw SQL for updating existing records
     conn = op.get_bind()
-    
-    # Update existing records with NULL patient_id or title
-    # Generate defaults for any NULL values
+    if conn.dialect.name == "sqlite":
+        conn.execute(text("""
+            UPDATE cases
+            SET patient_id = 'PATIENT_' || UPPER(SUBSTR(HEX(RANDOMBLOB(8)), 1, 8))
+            WHERE patient_id IS NULL OR patient_id = ''
+        """))
+        conn.execute(text("""
+            UPDATE cases
+            SET title = 'Case ' || STRFTIME('%Y-%m-%d %H:%M', created_at)
+            WHERE title IS NULL OR title = ''
+        """))
+        with op.batch_alter_table("cases") as batch_op:
+            batch_op.alter_column(
+                "patient_id",
+                existing_type=sa.String(),
+                nullable=True,
+            )
+            batch_op.alter_column(
+                "title",
+                existing_type=sa.String(),
+                nullable=True,
+            )
+        return
+
     conn.execute(text("""
-        UPDATE cases 
+        UPDATE cases
         SET patient_id = 'PATIENT_' || UPPER(SUBSTRING(MD5(RANDOM()::TEXT) FROM 1 FOR 8))
         WHERE patient_id IS NULL OR patient_id = ''
     """))
-    
     conn.execute(text("""
-        UPDATE cases 
+        UPDATE cases
         SET title = 'Case ' || TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI')
         WHERE title IS NULL OR title = ''
     """))
-    
-    # Alter columns to be nullable
-    op.alter_column('cases', 'patient_id',
-                    existing_type=sa.String(),
-                    nullable=True)
-    
-    op.alter_column('cases', 'title',
-                    existing_type=sa.String(),
-                    nullable=True)
+    op.alter_column(
+        "cases",
+        "patient_id",
+        existing_type=sa.String(),
+        nullable=True,
+    )
+    op.alter_column(
+        "cases",
+        "title",
+        existing_type=sa.String(),
+        nullable=True,
+    )
 
 
 def downgrade() -> None:
-    # Update any NULL values before making columns non-nullable
     conn = op.get_bind()
-    
+    if conn.dialect.name == "sqlite":
+        conn.execute(text("""
+            UPDATE cases
+            SET patient_id = 'PATIENT_' || UPPER(SUBSTR(HEX(RANDOMBLOB(8)), 1, 8))
+            WHERE patient_id IS NULL
+        """))
+        conn.execute(text("""
+            UPDATE cases
+            SET title = 'Case ' || STRFTIME('%Y-%m-%d %H:%M', created_at)
+            WHERE title IS NULL
+        """))
+        with op.batch_alter_table("cases") as batch_op:
+            batch_op.alter_column(
+                "patient_id",
+                existing_type=sa.String(),
+                nullable=False,
+            )
+            batch_op.alter_column(
+                "title",
+                existing_type=sa.String(),
+                nullable=False,
+            )
+        return
+
     conn.execute(text("""
-        UPDATE cases 
+        UPDATE cases
         SET patient_id = 'PATIENT_' || UPPER(SUBSTRING(MD5(RANDOM()::TEXT) FROM 1 FOR 8))
         WHERE patient_id IS NULL
     """))
-    
     conn.execute(text("""
-        UPDATE cases 
+        UPDATE cases
         SET title = 'Case ' || TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI')
         WHERE title IS NULL
     """))
-    
-    # Alter columns back to non-nullable
-    op.alter_column('cases', 'patient_id',
-                    existing_type=sa.String(),
-                    nullable=False)
-    
-    op.alter_column('cases', 'title',
-                    existing_type=sa.String(),
-                    nullable=False)
-
+    op.alter_column(
+        "cases",
+        "patient_id",
+        existing_type=sa.String(),
+        nullable=False,
+    )
+    op.alter_column(
+        "cases",
+        "title",
+        existing_type=sa.String(),
+        nullable=False,
+    )

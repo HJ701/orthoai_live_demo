@@ -3,13 +3,17 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from pathlib import Path
+from functools import lru_cache
+import hashlib
 import sys
 import time
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List
 
 from PIL import Image as PILImage
 
 from app.config import settings as app_settings
+from app.core.image_metadata import infer_modality as _infer_modality
+from app.core.image_metadata import infer_view as _infer_view
 from app.core.s3_storage import download_file_from_s3
 from app.models import Image
 
@@ -22,32 +26,13 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
-def _infer_modality(filename: str, content_type: Optional[str]) -> str:
-    value = (filename or "").lower()
-    if any(token in value for token in ("opg", "xray", "x-ray", "panoramic", "ceph")):
-        return "xray"
-    return "rgb"
-
-
-def _infer_view(filename: str, modality: str) -> Optional[str]:
-    if modality == "xray":
-        return "opg"
-    value = (filename or "").lower().replace("-", "_").replace(" ", "_")
-    if "front" in value or "frontal" in value:
-        return "frontal"
-    if "left" in value and "buccal" in value:
-        return "buccal_left"
-    if "right" in value and "buccal" in value:
-        return "buccal_right"
-    if "upper" in value or "maxillary" in value:
-        return "occlusal_maxillary"
-    if "lower" in value or "mandibular" in value:
-        return "occlusal_mandibular"
-    if "occlusal" in value:
-        return "occlusal"
-    if "buccal" in value:
-        return "buccal"
-    return None
+@lru_cache(maxsize=4)
+def _sha256_file(path_value: str) -> str:
+    digest = hashlib.sha256()
+    with Path(path_value).open("rb") as checkpoint:
+        for chunk in iter(lambda: checkpoint.read(8 * 1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def get_model_runtime():
@@ -69,10 +54,40 @@ def get_model_runtime():
             f"Import error: {exc!r}"
         ) from exc
 
+    checkpoint_path = model_settings.checkpoint_path.resolve()
+    actual_sha256 = _sha256_file(str(checkpoint_path))
+    expected_sha256 = app_settings.malocclusion_expected_sha256.lower().strip()
+    if not expected_sha256 or actual_sha256 != expected_sha256:
+        raise RuntimeError(
+            "Malocclusion checkpoint checksum mismatch; refusing to run inference. "
+            f"expected={expected_sha256 or 'unset'} actual={actual_sha256}"
+        )
+
     runtime = OrthoPatientFusionRuntime(model_settings)
     runtime.load()
     _runtime = runtime
     return _runtime
+
+
+def malocclusion_model_provenance(*, model_run_id: str, created_at: str) -> Dict[str, Any]:
+    try:
+        from orthoai_multimodel_best_model.serving.config import settings as model_settings
+    except ImportError as exc:
+        raise RuntimeError("OrthoAI multimodal model settings are unavailable.") from exc
+
+    checkpoint_path = model_settings.checkpoint_path.resolve()
+    return {
+        "model_run_id": model_run_id,
+        "model_id": "ortho-patient-fusion",
+        "semantic_version": app_settings.malocclusion_model_version,
+        "task": "patient_level_malocclusion_classification",
+        "artifact_sha256": _sha256_file(str(checkpoint_path)),
+        "label_schema_version": app_settings.malocclusion_label_schema_version,
+        "calibration_version": None,
+        "preprocessing_version": app_settings.malocclusion_preprocessing_version,
+        "build_commit": app_settings.build_commit,
+        "created_at": created_at,
+    }
 
 
 def load_runtime_images(images: Iterable[Image]) -> List[Any]:

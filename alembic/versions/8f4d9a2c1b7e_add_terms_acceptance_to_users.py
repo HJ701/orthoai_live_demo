@@ -30,9 +30,22 @@ def upgrade() -> None:
         "users",
         sa.Column("terms_accepted_at", sa.DateTime(timezone=True), nullable=True),
     )
-    op.alter_column("users", "terms_accepted", server_default=None)
+    if op.get_bind().dialect.name == "sqlite":
+        with op.batch_alter_table("users") as batch_op:
+            batch_op.alter_column(
+                "terms_accepted",
+                existing_type=sa.Boolean(),
+                server_default=None,
+            )
+    else:
+        op.alter_column("users", "terms_accepted", server_default=None)
 
 
 def downgrade() -> None:
-    op.drop_column("users", "terms_accepted_at")
-    op.drop_column("users", "terms_accepted")
+    if op.get_bind().dialect.name == "sqlite":
+        with op.batch_alter_table("users") as batch_op:
+            batch_op.drop_column("terms_accepted_at")
+            batch_op.drop_column("terms_accepted")
+    else:
+        op.drop_column("users", "terms_accepted_at")
+        op.drop_column("users", "terms_accepted")

@@ -80,16 +80,17 @@ def start_inference(
     if active_job:
         return InferenceResponse(job_id=active_job.id)
 
-    completed_job = db.query(InferenceJob).filter(
-        InferenceJob.case_id == case.id,
-        InferenceJob.state == JobState.DONE,
-    ).order_by(InferenceJob.completed_at.desc()).first()
-    if completed_job:
-        result_exists = db.query(InferenceResult).filter(
-            InferenceResult.job_id == completed_job.id,
-        ).first()
-        if result_exists:
-            return InferenceResponse(job_id=completed_job.id)
+    if not inference_data.force_rerun:
+        completed_job = db.query(InferenceJob).filter(
+            InferenceJob.case_id == case.id,
+            InferenceJob.state == JobState.DONE,
+        ).order_by(InferenceJob.completed_at.desc()).first()
+        if completed_job:
+            result_exists = db.query(InferenceResult).filter(
+                InferenceResult.job_id == completed_job.id,
+            ).first()
+            if result_exists:
+                return InferenceResponse(job_id=completed_job.id)
     
     # Create inference job
     job = InferenceJob(
@@ -113,7 +114,10 @@ def start_inference(
         action="run",
         resource_type="inference",
         resource_id=job.id,
-        details={"case_id": case.id},
+        details={
+            "case_id": case.id,
+            "force_rerun": inference_data.force_rerun,
+        },
         ip_address=request.client.host if request.client else None
     )
     

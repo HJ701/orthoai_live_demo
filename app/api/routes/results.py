@@ -14,6 +14,51 @@ from app.config import settings
 router = APIRouter()
 
 
+def _decode_location(value):
+    if not value:
+        return None
+    try:
+        return json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return value
+
+
+def _build_evidence_findings(evidence: ImageEvidence, findings_records) -> dict:
+    """Prefer the rich immutable per-image payload, with DB-row fallback."""
+    if evidence.findings:
+        try:
+            payload = json.loads(evidence.findings)
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict):
+            detections = payload.get("detections")
+            if isinstance(detections, list):
+                payload["detections"] = [
+                    {
+                        **detection,
+                        "type": detection.get("type") or detection.get("label") or "unknown",
+                        "factor": detection.get("factor") or "dental_instance_segmentation",
+                    }
+                    for detection in detections
+                    if isinstance(detection, dict)
+                ]
+                return payload
+
+    return {
+        "image_id": evidence.image_id,
+        "detections": [
+            {
+                "type": finding.type,
+                "label": finding.type,
+                "confidence": finding.confidence,
+                "location": _decode_location(finding.location),
+                "factor": finding.factor,
+            }
+            for finding in findings_records
+        ],
+    }
+
+
 @router.get("/cases/{case_id}/results", response_model=CaseResultsResponse)
 def get_case_results(
     request: Request,
@@ -54,19 +99,7 @@ def get_case_results(
         # Get Finding records for this evidence
         findings_records = db.query(Finding).filter(Finding.image_evidence_id == evidence.id).all()
         
-        # Build findings dictionary from Finding records
-        findings = {
-            "image_id": evidence.image_id,
-            "detections": [
-                {
-                    "type": f.type,
-                    "confidence": f.confidence,
-                    "location": f.location,
-                    "factor": f.factor
-                }
-                for f in findings_records
-            ]
-        }
+        findings = _build_evidence_findings(evidence, findings_records)
         
         per_image_evidence.append(ImageEvidenceResponse(
             image_id=evidence.image_id,
@@ -141,19 +174,7 @@ def download_pdf_summary(
         # Get Finding records for this evidence
         findings_records = db.query(Finding).filter(Finding.image_evidence_id == evidence.id).all()
         
-        # Build findings dictionary from Finding records
-        evidence_findings = {
-            "image_id": evidence.image_id,
-            "detections": [
-                {
-                    "type": f.type,
-                    "confidence": f.confidence,
-                    "location": f.location,
-                    "factor": f.factor
-                }
-                for f in findings_records
-            ]
-        }
+        evidence_findings = _build_evidence_findings(evidence, findings_records)
         
         per_image_evidence.append({
             "image_id": evidence.image_id,

@@ -99,6 +99,37 @@ def display_class(value: Any) -> str:
 
 def normalize_findings(findings: Dict[str, Any], per_image_evidence: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
+    models = findings.get("models") if isinstance(findings.get("models"), dict) else {}
+    malocclusion = models.get("malocclusion") if isinstance(models.get("malocclusion"), dict) else {}
+    prediction = malocclusion.get("prediction") if isinstance(malocclusion.get("prediction"), dict) else {}
+    if prediction.get("predicted_class") is not None:
+        rows.append(
+            {
+                "label": display_class(prediction.get("predicted_class")),
+                "confidence": prediction.get("confidence"),
+                "quantity": "1 patient-level output",
+                "source": "Malocclusion classifier",
+            }
+        )
+
+    segmentation = models.get("dental_segmentation") if isinstance(models.get("dental_segmentation"), dict) else {}
+    quantitative = segmentation.get("quantitative_summary") if isinstance(segmentation.get("quantitative_summary"), dict) else {}
+    classes = quantitative.get("classes") if isinstance(quantitative.get("classes"), list) else []
+    for item in classes:
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            {
+                "label": item.get("label") or "Dental instance",
+                "confidence": item.get("mean_confidence"),
+                "quantity": f"{item.get('instance_count', 0)} instance(s) / {item.get('image_count', 0)} image(s)",
+                "source": "Dental segmentation",
+            }
+        )
+
+    if rows:
+        return rows
+
     for item in findings.get("findings", []) if isinstance(findings.get("findings"), list) else []:
         if not isinstance(item, dict):
             continue
@@ -108,7 +139,7 @@ def normalize_findings(findings: Dict[str, Any], per_image_evidence: List[Dict[s
             {
                 "label": label,
                 "confidence": confidence,
-                "risk": risk_for(label, confidence),
+                "quantity": "Legacy output",
                 "source": "Overall model output",
                 "factor": item.get("factor") or "-",
             }
@@ -129,7 +160,7 @@ def normalize_findings(findings: Dict[str, Any], per_image_evidence: List[Dict[s
                 {
                     "label": label,
                     "confidence": confidence,
-                    "risk": risk_for(label, confidence),
+                    "quantity": "Legacy image output",
                     "source": evidence.get("filename", "Image evidence"),
                     "factor": detection.get("factor") or "-",
                 }
@@ -328,11 +359,19 @@ def generate_pdf_summary(
     story: List[Any] = []
     case_metadata = case_metadata or {}
     job_metadata = job_metadata or {}
-    prediction = findings.get("prediction", {}) if isinstance(findings.get("prediction"), dict) else {}
-    timings = findings.get("timings", {}) if isinstance(findings.get("timings"), dict) else {}
+    models = findings.get("models", {}) if isinstance(findings.get("models"), dict) else {}
+    malocclusion = models.get("malocclusion", {}) if isinstance(models.get("malocclusion"), dict) else {}
+    segmentation = models.get("dental_segmentation", {}) if isinstance(models.get("dental_segmentation"), dict) else {}
+    prediction = malocclusion.get("prediction", findings.get("prediction", {}))
+    prediction = prediction if isinstance(prediction, dict) else {}
+    timings = malocclusion.get("timings", findings.get("timings", {}))
+    timings = timings if isinstance(timings, dict) else {}
+    segmentation_timings = segmentation.get("timings", {}) if isinstance(segmentation.get("timings"), dict) else {}
+    quantitative = segmentation.get("quantitative_summary", findings.get("quantitative_summary", {}))
+    quantitative = quantitative if isinstance(quantitative, dict) else {}
     finding_rows = normalize_findings(findings, per_image_evidence)
-    low_risk_count = sum(1 for row in finding_rows if row["risk"] == "Low")
-    attention_count = max(len(finding_rows) - low_risk_count, 0)
+    instance_count = int(quantitative.get("total_instances", 0) or 0)
+    classes_present = int(quantitative.get("classes_present", 0) or 0)
     predicted_class = display_class(prediction.get("predicted_class"))
     confidence = prediction.get("confidence")
     generated_at = datetime.now(timezone.utc)
@@ -375,8 +414,8 @@ def generate_pdf_summary(
         [
             [
                 metric_card(len(finding_rows) or 1, "Findings", SOFT_PURPLE, styles),
-                metric_card(low_risk_count, "Low Risk", SOFT_GREEN, styles),
-                metric_card(attention_count or 1, "Require Attention", SOFT_AMBER, styles),
+                metric_card(instance_count, "Segmented Instances", SOFT_GREEN, styles),
+                metric_card(classes_present, "Dental Classes Present", SOFT_AMBER, styles),
             ]
         ],
         colWidths=[2.05 * inch, 2.05 * inch, 2.05 * inch],
@@ -386,17 +425,18 @@ def generate_pdf_summary(
     story.append(metrics)
     story.append(Spacer(1, 0.2 * inch))
 
-    story.append(Paragraph("Model Output", styles["section"]))
+    story.append(Paragraph("Separate Model Outputs", styles["section"]))
     story.append(
         key_value_table(
             [
                 ["Predicted Class", predicted_class],
-                ["Overall Confidence", format_percent(confidence)],
+                ["Classifier Score", format_percent(confidence)],
                 ["Images Processed", findings.get("total_images", len(per_image_evidence))],
-                ["Runtime Load", format_seconds(timings.get("runtime_load_seconds"))],
-                ["Image Loading", format_seconds(timings.get("image_load_seconds"))],
-                ["Model Prediction", format_seconds(timings.get("model_predict_seconds"))],
-                ["Total Inference", format_seconds(timings.get("total_inference_seconds"))],
+                ["Segmented Instances", instance_count],
+                ["Segmentation Classes", classes_present],
+                ["Classifier Runtime", format_seconds(timings.get("total_inference_seconds"))],
+                ["Segmentation Runtime", format_seconds(segmentation_timings.get("total_inference_seconds"))],
+                ["Score Fusion", "None — tasks reported independently"],
             ],
             styles,
         )
@@ -408,8 +448,8 @@ def generate_pdf_summary(
         finding_table_data = [
             [
                 Paragraph("Finding", styles["label"]),
-                Paragraph("Confidence", styles["label"]),
-                Paragraph("Risk", styles["label"]),
+                Paragraph("Model score", styles["label"]),
+                Paragraph("Quantity", styles["label"]),
                 Paragraph("Source", styles["label"]),
             ]
         ]
@@ -418,11 +458,11 @@ def generate_pdf_summary(
                 [
                     Paragraph(safe_text(row["label"]), styles["body"]),
                     Paragraph(format_percent(row["confidence"]), styles["body"]),
-                    Paragraph(f"<font color='{risk_hex(row['risk'])}'>{safe_text(row['risk'])}</font>", styles["body"]),
+                    Paragraph(safe_text(row["quantity"]), styles["body"]),
                     Paragraph(safe_text(row["source"]), styles["body"]),
                 ]
             )
-        finding_table = Table(finding_table_data, colWidths=[2.25 * inch, 1.0 * inch, 0.85 * inch, 2.25 * inch], repeatRows=1)
+        finding_table = Table(finding_table_data, colWidths=[1.8 * inch, 0.85 * inch, 1.7 * inch, 2.0 * inch], repeatRows=1)
         finding_table.setStyle(
             TableStyle(
                 [
@@ -450,13 +490,14 @@ def generate_pdf_summary(
         evidence_data = [
             [
                 Paragraph("Image", styles["label"]),
-                Paragraph("Confidence", styles["label"]),
+                Paragraph("Highest model score", styles["label"]),
                 Paragraph("Detected Findings", styles["label"]),
             ]
         ]
         for index, evidence in enumerate(per_image_evidence, start=1):
             detections = []
             evidence_findings = evidence.get("findings", {})
+            evidence_findings = evidence_findings if isinstance(evidence_findings, dict) else {}
             raw_detections = evidence_findings.get("detections", []) if isinstance(evidence_findings, dict) else []
             for detection in raw_detections if isinstance(raw_detections, list) else []:
                 if isinstance(detection, dict):
@@ -467,7 +508,17 @@ def generate_pdf_summary(
                 [
                     Paragraph(f"Image {index}<br/><font color='#6b7280'>{safe_text(evidence.get('filename'))}</font>", styles["body"]),
                     Paragraph(format_percent(evidence.get("confidence")), styles["body"]),
-                    Paragraph(safe_text("; ".join(detections) or "No findings recorded"), styles["body"]),
+                    Paragraph(
+                        safe_text(
+                            "; ".join(detections)
+                            or (
+                                "Not run — outside validated modality scope"
+                                if evidence_findings.get("status") == "skipped"
+                                else "No segmentation instances above threshold"
+                            )
+                        ),
+                        styles["body"],
+                    ),
                 ]
             )
         evidence_table = Table(evidence_data, colWidths=[2.0 * inch, 1.0 * inch, 3.35 * inch], repeatRows=1)
@@ -490,6 +541,26 @@ def generate_pdf_summary(
         story.append(evidence_table)
     else:
         story.append(paragraph("No per-image evidence records were available.", styles["body"]))
+
+    malocclusion_provenance = malocclusion.get("provenance", {}) if isinstance(malocclusion.get("provenance"), dict) else {}
+    segmentation_provenance = segmentation.get("provenance", {}) if isinstance(segmentation.get("provenance"), dict) else {}
+    story.append(Spacer(1, 0.2 * inch))
+    story.append(Paragraph("Model Provenance", styles["section"]))
+    story.append(
+        key_value_table(
+            [
+                ["Model Run ID", findings.get("model_run_id") or "-"],
+                ["Result Schema", findings.get("schema_version") or "Legacy"],
+                ["Classifier Version", malocclusion_provenance.get("semantic_version") or "-"],
+                ["Classifier SHA-256", malocclusion_provenance.get("artifact_sha256") or "-"],
+                ["Segmenter Version", segmentation_provenance.get("semantic_version") or "-"],
+                ["Segmenter SHA-256", segmentation_provenance.get("artifact_sha256") or "-"],
+                ["Label Schema", segmentation_provenance.get("label_schema_version") or "-"],
+                ["Build Commit", segmentation_provenance.get("build_commit") or malocclusion_provenance.get("build_commit") or "-"],
+            ],
+            styles,
+        )
+    )
 
     story.append(Spacer(1, 0.2 * inch))
     story.append(Paragraph("Clinical Review Checklist", styles["section"]))

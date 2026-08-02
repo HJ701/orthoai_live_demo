@@ -11,6 +11,38 @@ FastAPI backend for medical AI inference with background job processing.
 - Audit Logging
 - Rate Limiting
 - Structured Results API
+- Separated patient-level classification and quantitative dental instance segmentation
+
+## v2 model integration
+
+The v2 pilot runs the existing malocclusion classifier alongside a 31-class dental YOLOv8 segmentation model. Outputs, confidence scores, provenance, and timings remain task-specific; no cross-model score fusion is performed. The stock 91-class COCO DINO checkpoint is registered as initialization-only and is blocked from inference until dental fine-tuning and validation are complete.
+
+See [docs/MODEL_INTEGRATION_V2.md](docs/MODEL_INTEGRATION_V2.md) for the result contract, quantitative measurements, fail-closed controls, artifact roles, and GPU deployment settings.
+
+## Research Mode v3
+
+Research Mode v3 is the prospective HCI study workflow at `/research`. It is
+separate from the legacy clinical-validation demo and provides:
+
+- a blank, AI-blinded clinician assessment that must be locked server-side;
+- an owner-only source-image viewer that exposes no result or patient metadata;
+- a controlled AI reveal with an immutable payload and model/UI/epoch provenance;
+- a separate locked post-AI decision and active-time interaction telemetry;
+- governed clinician, reviewer, adjudicator, and research-administrator roles;
+- blinded source-image review by independent reviewers;
+- adjudication only after the configured number of distinct reviews;
+- versioned study instruments, append-only responses and corrections;
+- a de-identified linked export for research analysis.
+
+The architecture and component responsibilities are documented in
+[docs/RESEARCH_MODE_V3_ARCHITECTURE.md](docs/RESEARCH_MODE_V3_ARCHITECTURE.md).
+The research rationale and release gates are in
+[docs/ORTHOAI_PILOT_V3_RESEARCH_REQUIREMENTS.md](docs/ORTHOAI_PILOT_V3_RESEARCH_REQUIREMENTS.md).
+
+Development bootstrap is disabled by default. For an isolated local workspace,
+set `RESEARCH_BOOTSTRAP_ENABLED=true` and restrict
+`RESEARCH_ADMIN_EMAILS` to the signed-in administrator. Never enable bootstrap
+in production; the production configuration validator rejects it.
 
 ## Setup
 
@@ -94,6 +126,23 @@ CORS_ALLOW_HEADERS=*
 - `GET /api/v1/cases/{case_id}/results` - Get case results
 - `GET /api/v1/cases/{case_id}/summary.pdf` - Download signed PDF summary
 - `POST /api/v1/cases/{case_id}/notes` - Add clinician notes
+- `GET /api/v1/research/context` - Resolve governed study identity and epoch
+- `POST /api/v1/research/episodes` - Start a blinded decision episode
+- `GET /api/v1/research/episodes/{id}/source-case` - View clinician source-image metadata without AI output
+- `POST /api/v1/research/episodes/{id}/pre-ai` - Lock unaided assessment
+- `POST /api/v1/research/episodes/{id}/reveal` - Reveal and snapshot AI
+- `POST /api/v1/research/episodes/{id}/final` - Lock post-AI decision
+- `GET /api/v1/research/reference-queue` - List blinded review cases
+- `POST /api/v1/research/episodes/{id}/adjudication` - Lock reference standard
+- `GET /api/v1/research/studies/{code}/export` - Export linked research data
+
+## Verification
+
+```bash
+python -m pytest -q
+alembic upgrade head
+cd frontend && npm run typecheck && npm run build
+```
 
 ## Project Structure
 
@@ -123,4 +172,3 @@ app/
 alembic/
     └── versions/        # Migration files
 ```
-

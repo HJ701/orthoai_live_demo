@@ -162,6 +162,7 @@ class ImageResponse(BaseModel):
 # Inference Schemas
 class InferenceRequest(BaseModel):
     case_id: int
+    force_rerun: bool = False
 
 
 class InferenceResponse(BaseModel):

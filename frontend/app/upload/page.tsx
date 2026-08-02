@@ -138,8 +138,8 @@ export default function UploadPage() {
     >
       <Container maxWidth="lg">
         <PageHeader
-          title="Create Patient Case"
-          description="Create a new case and upload clinical images for AI analysis"
+          title="Diagnose a Case"
+          description="Add the clinical images and start the OrthoAI diagnosis"
         />
 
         <Grid container spacing={3} mt={0}>
@@ -192,4 +192,3 @@ export default function UploadPage() {
     </Box>
   )
 }
-

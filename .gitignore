@@ -17,6 +17,7 @@ data/local_e2e.db
 data/local_e2e.db-*
 data/orthoai_clinical.db
 data/orthoai_clinical_e2e.db
+data/*.db
 frontend/.next/
 frontend/node_modules/
 frontend/playwright-report/
@@ -25,3 +26,10 @@ frontend/e2e-artifacts/
 frontend/tsconfig.tsbuildinfo
 frontend/out/
 uploads/
+
+# Generated research exports, local render intermediates, and archived working
+# documents are not application source. Publish selected release documents
+# explicitly under docs/ instead.
+output/
+tmp/
+documents/

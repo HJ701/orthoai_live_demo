@@ -6,6 +6,15 @@ on:
       - main
     paths:
       - "Dockerfile.gpu"
+      - "requirements.txt"
+      - "requirements-gpu.txt"
+      - "app/config.py"
+      - "app/core/dental_segmentation.py"
+      - "app/core/model_inference.py"
+      - "app/tasks/inference.py"
+      - "model_artifacts/dental_segmentation/**"
+      - "orthoai_multimodel_best_model/**"
+      - "Dockerfile.gpu.dockerignore"
       - ".github/workflows/deploy-gpu-worker.yml"
   workflow_dispatch:
     inputs:
@@ -67,7 +76,7 @@ jobs:
             --task-definition medical-ai-production-celery \
             --query taskDefinition > current-celery.json
 
-          jq --arg image "$GPU_IMAGE_URI" '
+          jq --arg image "$GPU_IMAGE_URI" --arg build_commit "${{ github.sha }}" '
             def set_env($name; $value):
               .environment = ((.environment // []) | map(select(.name != $name)) + [{"name": $name, "value": $value}]);
             .family = "medical-ai-production-celery-gpu"
@@ -79,6 +88,9 @@ jobs:
                   | .resourceRequirements = [{"type": "GPU", "value": "1"}]
                   | set_env("ORTHOAI_DEVICE"; "cuda")
                   | set_env("PRELOAD_MODEL_RUNTIME"; "true")
+                  | set_env("DENTAL_SEGMENTATION_ENABLED"; "true")
+                  | set_env("DENTAL_SEGMENTATION_REQUIRED"; "true")
+                  | set_env("BUILD_COMMIT"; $build_commit)
                   | set_env("NVIDIA_DRIVER_CAPABILITIES"; "compute,utility")
                   | .logConfiguration = {
                       "logDriver": "awslogs",

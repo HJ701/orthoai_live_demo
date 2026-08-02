@@ -1,26 +1,21 @@
 'use client'
 
 import { useState } from 'react'
+import type { ElementType } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Image from 'next/image'
-import {
-  AppBar,
-  Toolbar,
-  Typography,
-  Button,
-  Box,
-  Menu,
-  MenuItem,
-  Avatar,
-  IconButton,
-} from '@mui/material'
-import {
-  CloudUpload,
-  Folder,
-  Help,
-  AccountCircle,
-  Logout,
-} from '@mui/icons-material'
+import AppBar from '@mui/material/AppBar'
+import Avatar from '@mui/material/Avatar'
+import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
+import IconButton from '@mui/material/IconButton'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
+import Toolbar from '@mui/material/Toolbar'
+import AccountCircle from '@mui/icons-material/AccountCircle'
+import Folder from '@mui/icons-material/Folder'
+import Logout from '@mui/icons-material/Logout'
+import Science from '@mui/icons-material/Science'
 import { Stethoscope } from 'lucide-react'
 import HeaderLogo from './header.png'
 
@@ -58,21 +53,13 @@ export default function Navigation() {
     })
   }
 
-  const navItems = [
-    { label: 'Upload', path: '/upload', icon: CloudUpload },
-    { label: 'Clinical Validation', path: '/clinical', icon: StethoscopeIcon },
+  const navItems: Array<{ label: string; path: string; icon: ElementType }> = [
+    { label: 'Diagnose a Case', path: '/upload', icon: StethoscopeIcon },
+    { label: 'Research Mode', path: '/research', icon: Science },
     { label: 'Cases', path: '/cases', icon: Folder },
-    { label: 'Help', path: '/help', icon: Help },
   ]
 
   const handleNavClick = (path: string) => {
-    // Clinical Validation carries the active case so it opens scoped to it,
-    // matching the upload -> clinical workflow.
-    if (path === '/clinical' && typeof window !== 'undefined') {
-      const caseId = sessionStorage.getItem('caseId')
-      router.push(caseId ? `/clinical?case_id=${encodeURIComponent(caseId)}` : '/clinical')
-      return
-    }
     router.push(path)
   }
 
@@ -118,7 +105,12 @@ export default function Navigation() {
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
           {navItems.map((item) => {
             const Icon = item.icon
-            const isActive = pathname === item.path
+            const isActive =
+              item.path === '/upload'
+                ? ['/upload', '/inference', '/results'].some((path) =>
+                    pathname?.startsWith(path),
+                  )
+                : pathname?.startsWith(item.path)
             return (
               <Button
                 key={item.path}
@@ -159,7 +151,7 @@ export default function Navigation() {
           >
             <MenuItem onClick={handleAccountClick}>
               <AccountCircle sx={{ mr: 2 }} />
-              Account & Audit
+              Account
             </MenuItem>
             <MenuItem onClick={handleLogout}>
               <Logout sx={{ mr: 2 }} />
@@ -171,4 +163,3 @@ export default function Navigation() {
     </AppBar>
   )
 }
-

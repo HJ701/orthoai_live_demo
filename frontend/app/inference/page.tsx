@@ -18,7 +18,14 @@ import {
   DialogActions,
   Alert,
 } from '@mui/material'
-import { Cancel, CheckCircle, ErrorOutline, ArrowBack } from '@mui/icons-material'
+import {
+  ArrowBack,
+  ArrowForward,
+  Cancel,
+  CheckCircle,
+  ErrorOutline,
+  Science,
+} from '@mui/icons-material'
 import { motion } from 'framer-motion'
 
 type Status = 'queued' | 'processing' | 'generating' | 'completed' | 'failed'
@@ -45,6 +52,11 @@ const STATUS_STEPS: StatusStep[] = [
     label: 'Generating',
     description: 'Producing summary & findings',
   },
+  {
+    status: 'completed',
+    label: 'Diagnosis complete',
+    description: 'Your OrthoAI analysis is ready for expert review',
+  },
 ]
 
 function InferencePageContent() {
@@ -52,11 +64,14 @@ function InferencePageContent() {
   const searchParams = useSearchParams()
   const caseId = searchParams.get('case_id') || 'unknown'
   const jobIdParam = searchParams.get('job_id')
+  const repeatOfEpisodeId = searchParams.get('repeat_of_episode_id')
 
   const [currentStatus, setCurrentStatus] = useState<Status>('queued')
   const [progress, setProgress] = useState(0)
   const [estimatedTime, setEstimatedTime] = useState<number | null>(null)
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false)
+  const [researchDialogOpen, setResearchDialogOpen] = useState(false)
+  const [openingResearch, setOpeningResearch] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [jobId, setJobId] = useState<number | null>(
     jobIdParam ? parseInt(jobIdParam) : null
@@ -102,9 +117,8 @@ function InferencePageContent() {
         // If completed, navigate to results
         if (status.state === 'done') {
           clearInterval(pollInterval)
-          setTimeout(() => {
-            router.push(`/results?case_id=${caseId}`)
-          }, 1000)
+          setProgress(100)
+          setResearchDialogOpen(true)
         }
 
         // If error, stop polling
@@ -157,6 +171,39 @@ function InferencePageContent() {
   const currentStepIndex = STATUS_STEPS.findIndex((step) => step.status === currentStatus)
   const failed = currentStatus === 'failed'
   const needsXray = failed && /xray|opg/i.test(error || '')
+
+  const startResearchReview = async () => {
+    setOpeningResearch(true)
+    setError(null)
+    try {
+      sessionStorage.setItem('researchStartCaseId', String(caseId))
+      if (repeatOfEpisodeId) {
+        const { researchAPI } = await import('@/lib/api')
+        const storageKey = `researchRepeatSession:${repeatOfEpisodeId}`
+        let clientSessionId = sessionStorage.getItem(storageKey)
+        if (!clientSessionId) {
+          clientSessionId =
+            typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+              ? crypto.randomUUID()
+              : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+          sessionStorage.setItem(storageKey, clientSessionId)
+        }
+        const repeated = await researchAPI.repeatEpisode(
+          Number(repeatOfEpisodeId),
+          clientSessionId,
+          'new_clinical_opinion',
+        )
+        router.push(`/research?episode_id=${repeated.id}`)
+        return
+      }
+      router.push(`/research?case_id=${encodeURIComponent(caseId)}`)
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'The research review could not start.',
+      )
+      setOpeningResearch(false)
+    }
+  }
 
   return (
     <Box
@@ -353,7 +400,7 @@ function InferencePageContent() {
                   >
                     Back to Upload
                   </Button>
-                ) : (
+                ) : currentStatus !== 'completed' ? (
                   <Button
                     variant="outlined"
                     startIcon={<Cancel />}
@@ -372,10 +419,29 @@ function InferencePageContent() {
                   >
                     Cancel Analysis
                   </Button>
+                ) : (
+                  <Button
+                    variant="contained"
+                    endIcon={<ArrowForward />}
+                    onClick={startResearchReview}
+                    disabled={openingResearch}
+                    sx={{
+                      color: 'white',
+                      mt: 2,
+                      mb: 2,
+                      px: 4,
+                      py: 1.5,
+                      borderRadius: 2,
+                      textTransform: 'none',
+                    }}
+                    className="gradient-purple"
+                  >
+                    {openingResearch ? 'Opening Research Mode…' : 'Start research review'}
+                  </Button>
                 )}
 
                 {/* Background Navigation Notice (running only) */}
-                {!failed && (
+                {!failed && currentStatus !== 'completed' && (
                   <Typography
                     variant="caption"
                     className="text-gray-400 mt-4 text-center"
@@ -413,6 +479,73 @@ function InferencePageContent() {
             sx={{ textTransform: 'none', mb: 2 }}
           >
             Cancel Analysis
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={researchDialogOpen}
+        maxWidth="sm"
+        fullWidth
+        disableEscapeKeyDown
+        aria-labelledby="research-ready-title"
+        PaperProps={{
+          sx: {
+            borderRadius: 4,
+            p: { xs: 1, sm: 2 },
+            boxShadow: '0 28px 80px rgba(23, 50, 77, 0.24)',
+          },
+        }}
+      >
+        <DialogContent sx={{ textAlign: 'center', pt: 4 }}>
+          <Box
+            width={68}
+            height={68}
+            borderRadius="50%"
+            bgcolor="#eef2ff"
+            color="#4f46e5"
+            display="flex"
+            alignItems="center"
+            justifyContent="center"
+            mx="auto"
+            mb={2}
+          >
+            <CheckCircle sx={{ fontSize: 42 }} />
+          </Box>
+          <Typography id="research-ready-title" variant="h4" fontWeight={850} color="#17324d">
+            Diagnosis complete
+          </Typography>
+          <Typography color="text.secondary" mt={1.25}>
+            Continue with the short expert review for this case. You will record
+            your own assessment first, then compare it with OrthoAI.
+          </Typography>
+          <Alert
+            severity="info"
+            icon={<Science />}
+            sx={{ mt: 3, textAlign: 'left', borderRadius: 2.5 }}
+          >
+            Under your study consent, response timing and interactions are recorded
+            to evaluate how clinicians use AI support.
+          </Alert>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3, pt: 2 }}>
+          <Button
+            fullWidth
+            variant="contained"
+            size="large"
+            endIcon={<ArrowForward />}
+            onClick={startResearchReview}
+            disabled={openingResearch}
+            sx={{
+              minHeight: 56,
+              borderRadius: 2.5,
+              textTransform: 'none',
+              fontWeight: 800,
+            }}
+          >
+            {openingResearch
+              ? 'Opening Research Mode…'
+              : 'Start the research review now'}
           </Button>
         </DialogActions>
       </Dialog>

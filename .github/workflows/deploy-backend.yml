@@ -33,7 +33,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          lfs: true
+          # Model weights are excluded from the API/non-GPU image.
+          lfs: false
 
       - name: Show deploy ref
         run: |

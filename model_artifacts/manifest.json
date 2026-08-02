@@ -1,0 +1,38 @@
+{
+  "schema_version": "orthoai.model-artifacts/1.0.0",
+  "artifacts": [
+    {
+      "id": "dental-yolov8-seg-31",
+      "path": "model_artifacts/dental_segmentation/best.pt",
+      "sha256": "af14905ab5bb9321e6ca55fa5e22bb66dc206f67d7610b9bbf8f38da8af46433",
+      "framework": "ultralytics",
+      "framework_version": "8.3.0",
+      "architecture": "YOLOv8-seg",
+      "task": "instance_segmentation",
+      "runtime_status": "deployed",
+      "input_scope": "dental radiographs explicitly identified as xray",
+      "class_count": 31,
+      "class_indexing": {
+        "model": "zero-based",
+        "coco_export": "one-based"
+      },
+      "limitations": [
+        "Confidence scores are model scores and are not calibrated probabilities.",
+        "Mask areas are image-plane measurements and are not physical units without acquisition calibration.",
+        "The pilot output is decision support and requires clinician review."
+      ]
+    },
+    {
+      "id": "dino-detr-r50-4scale-coco-epoch33",
+      "path": "model_artifacts/dino_detr/checkpoint0033_4scale.pth",
+      "sha256": "dca4f546e27803b2b6670b24c4f1de7805d747ff3d55b6b09e9dda72e4bb941b",
+      "framework": "pytorch",
+      "architecture": "DINO-DETR ResNet-50 4-scale",
+      "task": "object_detection",
+      "dataset": "COCO 2017",
+      "class_count": 91,
+      "runtime_status": "initialization_only",
+      "runtime_block_reason": "This checkpoint predicts COCO objects, not dental findings. It must be fine-tuned and validated on the dental COCO data before deployment."
+    }
+  ]
+}

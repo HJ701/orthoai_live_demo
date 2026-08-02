@@ -27,14 +27,49 @@ class Settings(BaseSettings):
     
     # Application
     api_v1_prefix: str = "/api/v1"
-    model_version: str = "v1.0.0"
+    model_version: str = "v2.0.0"
+    result_schema_version: str = "orthoai.combined-result/2.0.0"
+    build_commit: str = "unknown"
+    malocclusion_model_version: str = "ortho-patient-fusion/1.7.0"
+    malocclusion_expected_sha256: str = "059e6fec013e4777d592814716146f4e319644e2d7ee4b33b37d3eac9fb64e99"
+    malocclusion_label_schema_version: str = "orthoai.malocclusion-3/1.0.0"
+    malocclusion_preprocessing_version: str = "ortho-patient-fusion-serving/1.0.0"
     upload_dir: str = "./uploads"
     max_upload_size_mb: int = 50
-    preload_model_runtime: bool = True
+    # GPU deployments enable this explicitly. API and non-inference Celery
+    # workers must not attempt to load large model artifacts at process start.
+    preload_model_runtime: bool = False
     model_max_download_workers: int = 4
     dev_mock_inference: bool = False
     dev_expose_otp: bool = False
     enable_local_storage_fallback: bool = True
+
+    # Dental instance segmentation (YOLOv8-seg). This is intentionally a
+    # separate output from the patient-level malocclusion classifier: their
+    # scores are not statistically interchangeable and must never be fused.
+    dental_segmentation_enabled: bool = True
+    dental_segmentation_required: bool = True
+    dental_segmentation_checkpoint: str = "model_artifacts/dental_segmentation/best.pt"
+    dental_segmentation_expected_sha256: str = "af14905ab5bb9321e6ca55fa5e22bb66dc206f67d7610b9bbf8f38da8af46433"
+    dental_segmentation_model_version: str = "dental-yolov8-seg-31/v1.0.0"
+    dental_segmentation_label_schema_version: str = "orthoai.dental-31/1.0.0"
+    dental_segmentation_preprocessing_version: str = "ultralytics-8.3.0-imgsz640/1.0.0"
+    dental_segmentation_modalities: str = "xray"
+    dental_segmentation_confidence: float = 0.25
+    dental_segmentation_iou: float = 0.7
+    dental_segmentation_imgsz: int = 640
+    dental_segmentation_max_detections: int = 300
+    dental_segmentation_device: str = ""
+
+    # Research Mode v3. Bootstrap is a development convenience only; production
+    # study configuration must be created by an explicitly authorized account.
+    research_mode_enabled: bool = True
+    research_ui_version: str = "research-ui/3.0.0"
+    research_event_schema_version: str = "research-event/1.0.0"
+    research_export_schema_version: str = "orthoai-research-export/3.0.0"
+    research_bootstrap_enabled: bool = False
+    research_self_enrollment_enabled: bool = False
+    research_admin_emails: str = ""
 
     # OpenAI (findings "Structured Output" narrative explanation)
     openai_api_key: str = ""
@@ -106,6 +141,8 @@ class Settings(BaseSettings):
                 errors.append("AWS_S3_BUCKET_NAME must be configured")
             if self.rate_limit_enabled and self.rate_limit_storage.lower() != "redis":
                 errors.append("RATE_LIMIT_STORAGE=redis is required in production")
+            if self.research_bootstrap_enabled:
+                errors.append("RESEARCH_BOOTSTRAP_ENABLED must be false in production")
             if errors:
                 raise ValueError("Invalid production configuration: " + "; ".join(errors))
             

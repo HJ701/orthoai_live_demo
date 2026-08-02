@@ -1,0 +1,25 @@
+.git
+.github
+.pytest_cache
+.mypy_cache
+.ruff_cache
+__pycache__
+*.pyc
+.env
+.env.*
+.aws-local
+.merge-backup
+venv
+.venv
+uploads
+*.log
+frontend/.next
+frontend/node_modules
+frontend/playwright-report
+frontend/test-results
+frontend/e2e-artifacts
+frontend/tsconfig.tsbuildinfo
+frontend/out
+
+# COCO initialization only; never shipped into the inference runtime.
+model_artifacts/dino_detr/checkpoint0033_4scale.pth

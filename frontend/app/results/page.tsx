@@ -24,10 +24,9 @@ import {
   IconButton,
   Tooltip,
   CircularProgress,
+  Alert,
 } from '@mui/material'
 import {
-  CheckCircle,
-  Warning,
   Info,
   ArrowBack,
   Download,
@@ -35,20 +34,19 @@ import {
   NoteAdd,
   ExpandMore,
   ContentCopy,
-  Visibility,
   PhotoCamera,
+  Science,
 } from '@mui/icons-material'
 import { motion } from 'framer-motion'
 import { displayClass } from '@/lib/format'
-import { Stethoscope } from 'lucide-react'
 
 interface DiagnosticResult {
   condition: string
   confidence: number
-  severity: 'low' | 'medium' | 'high'
+  scope: 'Patient classification' | 'Image segmentation'
   description: string
-  recommendations: string[]
-  imageIndex?: number
+  instanceCount?: number
+  imageCount?: number
 }
 
 interface CaseData {
@@ -58,58 +56,32 @@ interface CaseData {
   modality_tags: string[]
   created_at: string
   model_version: string
-  model_checksum: string
+  model_checksums: string[]
 }
 
-const SAMPLE_RESULTS: DiagnosticResult[] = [
-  {
-    condition: 'Malocclusion Class II',
-    confidence: 87,
-    severity: 'medium',
-    description: 'Class II malocclusion detected with moderate severity. Overjet measurement indicates need for orthodontic evaluation.',
-    recommendations: [
-      'Schedule orthodontic consultation',
-      'Consider cephalometric analysis for treatment planning',
-      'Monitor growth patterns if patient is in growth phase',
-    ],
-    imageIndex: 0,
-  },
-  {
-    condition: 'IOTN Grade 3',
-    confidence: 92,
-    severity: 'medium',
-    description: 'Index of Orthodontic Treatment Need (IOTN) graded as 3 - moderate need for treatment.',
-    recommendations: [
-      'Orthodontic treatment recommended',
-      'Assess patient motivation and compliance',
-      'Consider functional appliance if indicated',
-    ],
-    imageIndex: 1,
-  },
-  {
-    condition: 'Caries Risk - Low',
-    confidence: 85,
-    severity: 'low',
-    description: 'Overall caries risk assessment indicates low risk. Good oral hygiene patterns observed.',
-    recommendations: [
-      'Maintain current preventive care routine',
-      'Continue regular checkups every 6 months',
-      'Monitor high-risk areas identified in images',
-    ],
-    imageIndex: 0,
-  },
-]
+interface EvidenceSummary {
+  imageId: number
+  label: string
+  condition: string
+  confidence: number
+  detectionCount: number
+  width: number
+  height: number
+  detections: any[]
+}
+
+const detectionColor = (classId: number) => `hsl(${(classId * 47) % 360} 75% 48%)`
 
 function ResultsPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const caseId = searchParams.get('case_id') || 'CASE-1234567890'
+  const caseId = searchParams.get('case_id') || ''
 
   const [results, setResults] = useState<DiagnosticResult[]>([])
-  const [imageEvidence, setImageEvidence] = useState<
-    { imageId: number; label: string; condition: string; confidence: number }[]
-  >([])
+  const [imageEvidence, setImageEvidence] = useState<EvidenceSummary[]>([])
   const [evidenceImages, setEvidenceImages] = useState<Record<number, string>>({})
+  const [rawResult, setRawResult] = useState<Record<string, any> | null>(null)
+  const [loadError, setLoadError] = useState('')
   const [explanation, setExplanation] = useState<string>('')
   const [explanationSource, setExplanationSource] = useState<string>('')
   const [explanationLoading, setExplanationLoading] = useState(true)
@@ -117,10 +89,54 @@ function ResultsPageContent() {
   const [jsonExpanded, setJsonExpanded] = useState(false)
   const [noteDialogOpen, setNoteDialogOpen] = useState(false)
   const [clinicianNote, setClinicianNote] = useState('')
+  const [researchAccessChecked, setResearchAccessChecked] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    async function protectPreAIAssessment() {
+      try {
+        if (!caseId) {
+          setResearchAccessChecked(true)
+          return
+        }
+        const { researchAPI } = await import('@/lib/api')
+        const context = await researchAPI.context()
+        if (context.participant?.role !== 'clinician') {
+          if (!cancelled) setResearchAccessChecked(true)
+          return
+        }
+        const episodes = await researchAPI.listEpisodes('ORTHOAI-HCI-V3')
+        const numericCaseId = Number(caseId.replace('CASE-', ''))
+        const latest = episodes.items.find((item) => item.case_id === numericCaseId)
+        const finished =
+          latest &&
+          ['final_locked', 'adjudicated'].includes(latest.state) &&
+          (!latest.follow_up.required || latest.follow_up.completed)
+        if (!finished) {
+          router.replace(
+            latest
+              ? `/research?episode_id=${latest.id}`
+              : `/research?case_id=${numericCaseId}`,
+          )
+          return
+        }
+        if (!cancelled) setResearchAccessChecked(true)
+      } catch {
+        // Keep the diagnostic surface available outside an enrolled research study.
+        if (!cancelled) setResearchAccessChecked(true)
+      }
+    }
+    void protectPreAIAssessment()
+    return () => {
+      cancelled = true
+    }
+  }, [caseId, router])
 
   useEffect(() => {
     const loadResults = async () => {
       try {
+        setLoadError('')
+        if (!caseId) throw new Error('A case_id is required to load results.')
         const { resultsAPI, casesAPI } = await import('@/lib/api')
         // Case ID from URL might be numeric or have CASE- prefix
         const caseIdNum = caseId.startsWith('CASE-')
@@ -129,6 +145,7 @@ function ResultsPageContent() {
 
         // Fetch results from API
         const apiResults = await resultsAPI.getResults(caseIdNum)
+        setRawResult(apiResults as unknown as Record<string, any>)
 
         // Fetch THIS case's own details so the header reflects the case being
         // viewed — not the last-uploaded case cached in sessionStorage (which
@@ -147,7 +164,14 @@ function ResultsPageContent() {
           }
         }
 
-        // Set case data (prefer the case's own backend fields)
+        const findings = (apiResults.findings as any) || {}
+        const models = findings.models || {}
+        const checksums = [
+          models?.malocclusion?.provenance?.artifact_sha256,
+          models?.dental_segmentation?.provenance?.artifact_sha256,
+        ].filter((value): value is string => typeof value === 'string' && value.length > 0)
+
+        // Set case data (prefer the case's own backend fields and real provenance)
         setCaseData({
           case_id: String(apiResults.case_id),
           patient_id: caseDetail?.patient_id || parsedCase.patient_id || '—',
@@ -155,29 +179,41 @@ function ResultsPageContent() {
           modality_tags: caseDetail?.tags || parsedCase.modality_tags || [],
           created_at: apiResults.created_at,
           model_version: apiResults.model_version,
-          model_checksum: 'sha256:abc123def456...', // Backend doesn't return this yet
+          model_checksums: checksums,
         })
 
-        // Transform API results to frontend format.
-        // The deployed model returns ONE patient-level prediction
-        // (findings.prediction) plus per_image_evidence[].findings.detections[]
-        // echoing that prediction per image. Class names are numeric ("0/1/2")
-        // from the real model, or readable from the mock — displayClass handles both.
+        // Preserve task boundaries: one patient-level malocclusion result and
+        // per-class quantitative segmentation summaries. Scores are never fused.
         const transformedResults: DiagnosticResult[] = []
-        const evidenceSummaries: { imageId: number; label: string; condition: string; confidence: number }[] = []
-        const prediction = (apiResults.findings as any)?.prediction
+        const evidenceSummaries: EvidenceSummary[] = []
+        const prediction = models?.malocclusion?.prediction || findings.prediction
+        const quantitativeSummary =
+          models?.dental_segmentation?.quantitative_summary || findings.quantitative_summary || {}
 
         // Per-image evidence cards (one per uploaded image), readable class names
         apiResults.per_image_evidence.forEach((evidence, idx) => {
           const detections: any[] = Array.isArray((evidence.findings as any)?.detections)
             ? (evidence.findings as any).detections
             : []
-          const top = detections[0]
+          const counts = new Map<string, number>()
+          detections.forEach((detection) => {
+            const label = String(detection.label || detection.type || 'Unclassified')
+            counts.set(label, (counts.get(label) || 0) + 1)
+          })
+          const condition = counts.size
+            ? Array.from(counts.entries()).map(([label, count]) => `${count} × ${label}`).join(', ')
+            : (evidence.findings as any)?.status === 'skipped'
+              ? 'Not run — outside validated modality scope'
+              : 'No segmentation instances above threshold'
           evidenceSummaries.push({
             imageId: evidence.image_id,
             label: evidence.filename || `Image ${idx + 1}`,
-            condition: displayClass(top?.type ?? prediction?.predicted_class ?? 'No findings'),
-            confidence: Math.round(((top?.confidence ?? evidence.confidence) || 0) * 100),
+            condition,
+            confidence: Math.round((Math.max(0, ...detections.map((d) => Number(d.confidence) || 0))) * 100),
+            detectionCount: detections.length,
+            width: Number((evidence.findings as any)?.width_pixels) || 1,
+            height: Number((evidence.findings as any)?.height_pixels) || 1,
+            detections,
           })
         })
 
@@ -186,28 +222,24 @@ function ResultsPageContent() {
           transformedResults.push({
             condition: displayClass(prediction.predicted_class),
             confidence: Math.round((prediction.confidence || 0) * 100),
-            severity: 'medium',
+            scope: 'Patient classification',
             description: apiResults.summary,
-            recommendations: [],
-          })
-        } else {
-          // Fallback: derive findings from per-image detections
-          apiResults.per_image_evidence.forEach((evidence, idx) => {
-            const detections: any[] = Array.isArray((evidence.findings as any)?.detections)
-              ? (evidence.findings as any).detections
-              : []
-            detections.forEach((det) => {
-              transformedResults.push({
-                condition: displayClass(det.type),
-                confidence: Math.round(((det.confidence ?? evidence.confidence) || 0) * 100),
-                severity: det.severity || 'medium',
-                description: det.description || apiResults.summary,
-                recommendations: det.recommendations || [],
-                imageIndex: idx,
-              })
-            })
           })
         }
+
+        const classSummaries: any[] = Array.isArray(quantitativeSummary.classes)
+          ? quantitativeSummary.classes
+          : []
+        classSummaries.forEach((item) => {
+          transformedResults.push({
+            condition: String(item.label || 'Unclassified dental instance'),
+            confidence: Math.round((Number(item.mean_confidence) || 0) * 100),
+            scope: 'Image segmentation',
+            instanceCount: Number(item.instance_count) || 0,
+            imageCount: Number(item.image_count) || 0,
+            description: `${Number(item.instance_count) || 0} segmented instance(s) across ${Number(item.image_count) || 0} image(s). Mean image-plane area per instance: ${Number(item.mean_instance_area_percent || 0).toFixed(2)}%.`,
+          })
+        })
 
         setImageEvidence(evidenceSummaries)
 
@@ -231,61 +263,16 @@ function ResultsPageContent() {
           .catch(() => setExplanation(''))
           .finally(() => setExplanationLoading(false))
 
-        // Fallback to sample results only if the backend returned nothing usable
-        if (transformedResults.length === 0) {
-          setResults(SAMPLE_RESULTS)
-        } else {
-          setResults(transformedResults)
-        }
+        setResults(transformedResults)
       } catch (err: any) {
         console.error('Failed to load results:', err)
         setExplanationLoading(false)
-        // Fallback to sample data on error
-        const storedCase = sessionStorage.getItem('currentCase')
-        if (storedCase) {
-          const parsed = JSON.parse(storedCase)
-          setCaseData({
-            case_id: caseId,
-            patient_id: parsed.patient_id || '—',
-            case_title: parsed.case_title || 'Case Analysis',
-            modality_tags: parsed.modality_tags || [],
-            created_at: new Date().toISOString(),
-            model_version: 'v1.0.0',
-            model_checksum: 'sha256:abc123def456...',
-          })
-        }
-        setResults(SAMPLE_RESULTS)
+        setLoadError(err?.message || 'Results are unavailable.')
       }
     }
 
     loadResults()
   }, [caseId])
-
-  const getSeverityColor = (severity: string) => {
-    switch (severity) {
-      case 'high':
-        return '#ef4444'
-      case 'medium':
-        return '#f59e0b'
-      case 'low':
-        return '#10b981'
-      default:
-        return '#6b7280'
-    }
-  }
-
-  const getSeverityIcon = (severity: string) => {
-    switch (severity) {
-      case 'high':
-        return <Warning sx={{ color: '#ef4444' }} />
-      case 'medium':
-        return <Info sx={{ color: '#f59e0b' }} />
-      case 'low':
-        return <CheckCircle sx={{ color: '#10b981' }} />
-      default:
-        return <Info />
-    }
-  }
 
   const handleDownloadPDF = async () => {
     try {
@@ -310,12 +297,8 @@ function ResultsPageContent() {
   }
 
   const handleDownloadJSON = () => {
-    const jsonData = {
-      case_id: caseData?.case_id,
-      results,
-      model_version: caseData?.model_version,
-      generated_at: new Date().toISOString(),
-    }
+    if (!rawResult) return
+    const jsonData = rawResult
     const blob = new Blob([JSON.stringify(jsonData, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -326,12 +309,8 @@ function ResultsPageContent() {
   }
 
   const handleCopyJSON = () => {
-    const jsonData = {
-      case_id: caseData?.case_id,
-      results,
-      model_version: caseData?.model_version,
-      generated_at: new Date().toISOString(),
-    }
+    if (!rawResult) return
+    const jsonData = rawResult
     navigator.clipboard.writeText(JSON.stringify(jsonData, null, 2))
     alert('JSON copied to clipboard')
   }
@@ -353,20 +332,46 @@ function ResultsPageContent() {
 
   const handleRerun = async () => {
     try {
-      const { inferenceAPI } = await import('@/lib/api')
+      const { inferenceAPI, researchAPI } = await import('@/lib/api')
       const caseIdNum = caseId.startsWith('CASE-') 
         ? parseInt(caseId.replace('CASE-', '')) 
         : parseInt(caseId)
-      const inferenceResponse = await inferenceAPI.startInference(caseIdNum)
+      const inferenceResponse = await inferenceAPI.startInference(caseIdNum, {
+        forceRerun: true,
+      })
       const jobId = inferenceResponse.job_id
       sessionStorage.setItem('jobId', String(jobId))
-      router.push(`/inference?case_id=${caseId}&job_id=${jobId}`)
+      const episodes = await researchAPI
+        .listEpisodes('ORTHOAI-HCI-V3')
+        .catch(() => ({ total: 0, items: [] }))
+      const repeatSource = episodes.items.find(
+        (item) =>
+          item.case_id === caseIdNum &&
+          ['final_locked', 'adjudicated'].includes(item.state) &&
+          (!item.follow_up.required || item.follow_up.completed),
+      )
+      const repeatQuery = repeatSource
+        ? `&repeat_of_episode_id=${repeatSource.id}`
+        : ''
+      router.push(
+        `/inference?case_id=${caseId}&job_id=${jobId}${repeatQuery}`,
+      )
     } catch (err: any) {
       alert(`Failed to restart inference: ${err.message}`)
     }
   }
 
-  if (!caseData) {
+  if (loadError) {
+    return (
+      <Box className="min-h-screen flex items-center justify-center" sx={{ p: 3 }}>
+        <Alert severity="error" sx={{ maxWidth: 720 }}>
+          Results unavailable: {loadError} No placeholder or sample diagnosis has been substituted.
+        </Alert>
+      </Box>
+    )
+  }
+
+  if (!researchAccessChecked || !caseData) {
     return (
       <Box className="min-h-screen flex items-center justify-center">
         <Typography>Loading...</Typography>
@@ -431,9 +436,16 @@ function ResultsPageContent() {
                 <Typography variant="caption" className="text-gray-600">
                   <strong>Model Version:</strong> {caseData.model_version}
                 </Typography>
-                <Typography variant="caption" className="text-gray-600">
-                  <strong>Checksum:</strong> {caseData.model_checksum.substring(0, 20)}...
-                </Typography>
+                {caseData.model_checksums.length ? caseData.model_checksums.map((checksum, index) => (
+                  <Typography key={checksum} variant="caption" className="text-gray-600">
+                    <strong>{index === 0 ? 'Classifier' : 'Segmenter'} SHA-256:</strong>{' '}
+                    {checksum.substring(0, 16)}…
+                  </Typography>
+                )) : (
+                  <Typography variant="caption" className="text-gray-600">
+                    <strong>Artifact provenance:</strong> unavailable for this legacy result
+                  </Typography>
+                )}
               </Box>
             </CardContent>
           </Card>
@@ -462,10 +474,10 @@ function ResultsPageContent() {
                     }}
                   >
                     <Typography variant="h4" className="font-bold text-purple-600">
-                      {results.length}
+                      {results.filter((result) => result.scope === 'Patient classification').length}
                     </Typography>
                     <Typography variant="body2" className="text-gray-600">
-                      Findings
+                      Patient Classifications
                     </Typography>
                   </Paper>
                 </Grid>
@@ -480,10 +492,10 @@ function ResultsPageContent() {
                     }}
                   >
                     <Typography variant="h4" className="font-bold text-green-600">
-                      {results.filter((r) => r.severity === 'low').length}
+                      {results.reduce((sum, result) => sum + (result.instanceCount || 0), 0)}
                     </Typography>
                     <Typography variant="body2" className="text-gray-600">
-                      Low Risk
+                      Segmented Instances
                     </Typography>
                   </Paper>
                 </Grid>
@@ -498,10 +510,10 @@ function ResultsPageContent() {
                     }}
                   >
                     <Typography variant="h4" className="font-bold text-amber-600">
-                      {results.filter((r) => r.severity !== 'low').length}
+                      {results.filter((result) => result.scope === 'Image segmentation').length}
                     </Typography>
                     <Typography variant="body2" className="text-gray-600">
-                      Require Attention
+                      Dental Classes Present
                     </Typography>
                   </Paper>
                 </Grid>
@@ -513,6 +525,11 @@ function ResultsPageContent() {
                   Key Findings:
                 </Typography>
                 <Box display="flex" flexDirection="column" gap={1}>
+                  {results.length === 0 && (
+                    <Alert severity="info">
+                      The completed result contains no publishable model outputs. Review the raw provenance and rerun configuration.
+                    </Alert>
+                  )}
                   {results.map((result, index) => (
                     <Box
                       key={index}
@@ -525,14 +542,17 @@ function ResultsPageContent() {
                         borderRadius: 1,
                       }}
                     >
-                      {getSeverityIcon(result.severity)}
+                      <Info sx={{ color: result.scope === 'Patient classification' ? '#6366f1' : '#0891b2' }} />
                       <Box flexGrow={1}>
                         <Typography variant="body2" className="font-medium text-gray-800">
                           {result.condition}
                         </Typography>
+                        <Typography variant="caption" className="text-gray-500">
+                          {result.description}
+                        </Typography>
                       </Box>
                       <Chip
-                        label={`${result.confidence}%`}
+                        label={`Model score ${result.confidence}%`}
                         size="small"
                         sx={{
                           bgcolor: 'rgba(99, 102, 241, 0.1)',
@@ -541,13 +561,12 @@ function ResultsPageContent() {
                         }}
                       />
                       <Chip
-                        label={result.severity}
+                        label={result.scope}
                         size="small"
                         sx={{
-                          bgcolor: getSeverityColor(result.severity) + '20',
-                          color: getSeverityColor(result.severity),
+                          bgcolor: result.scope === 'Patient classification' ? '#eef2ff' : '#ecfeff',
+                          color: result.scope === 'Patient classification' ? '#4f46e5' : '#0e7490',
                           fontWeight: 500,
-                          textTransform: 'capitalize',
                         }}
                       />
                     </Box>
@@ -572,7 +591,7 @@ function ResultsPageContent() {
               <Grid container spacing={2}>
                 {(imageEvidence.length
                   ? imageEvidence.slice(0, 3)
-                  : [{ imageId: -1, label: 'Image 1', condition: 'No findings', confidence: 0 }]
+                  : [{ imageId: -1, label: 'No image evidence', condition: 'Segmentation output unavailable', confidence: 0, detectionCount: 0, width: 1, height: 1, detections: [] }]
                 ).map((ev, index) => (
                   <Grid item xs={12} sm={imageEvidence.length > 1 ? 6 : 12} key={index}>
                     <Paper
@@ -594,6 +613,7 @@ function ResultsPageContent() {
                           alignItems: 'center',
                           justifyContent: 'center',
                           overflow: 'hidden',
+                          position: 'relative',
                         }}
                       >
                         {evidenceImages[ev.imageId] ? (
@@ -606,12 +626,43 @@ function ResultsPageContent() {
                         ) : (
                           <PhotoCamera sx={{ fontSize: 48, color: '#6b7280' }} />
                         )}
+                        {evidenceImages[ev.imageId] && ev.detections.some((detection) => Array.isArray(detection.polygon_normalized) && detection.polygon_normalized.length > 2) && (
+                          <Box
+                            component="svg"
+                            viewBox={`0 0 ${ev.width} ${ev.height}`}
+                            preserveAspectRatio="xMidYMid meet"
+                            sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
+                          >
+                            {ev.detections.map((detection, detectionIndex) => {
+                              const points = Array.isArray(detection.polygon_normalized)
+                                ? detection.polygon_normalized
+                                    .map((point: number[]) => `${point[0] * ev.width},${point[1] * ev.height}`)
+                                    .join(' ')
+                                : ''
+                              if (!points) return null
+                              const color = detectionColor(Number(detection.class_id) || 0)
+                              return (
+                                <polygon
+                                  key={`${detection.class_id}-${detectionIndex}`}
+                                  points={points}
+                                  fill={color}
+                                  fillOpacity="0.25"
+                                  stroke={color}
+                                  strokeWidth={Math.max(ev.width, ev.height) * 0.003}
+                                >
+                                  <title>{`${detection.label}: ${Math.round((Number(detection.confidence) || 0) * 100)}%`}</title>
+                                </polygon>
+                              )
+                            })}
+                          </Box>
+                        )}
                       </Box>
                       <Typography variant="body2" className="font-medium text-gray-800 mb-1">
                         {ev.label || `Image ${index + 1}`}
                       </Typography>
                       <Typography variant="caption" className="text-gray-500">
-                        Detected: {ev.condition} (confidence {ev.confidence}%)
+                        {ev.condition}
+                        {ev.detectionCount > 0 ? ` · highest model score ${ev.confidence}%` : ''}
                       </Typography>
                     </Paper>
                   </Grid>
@@ -697,16 +748,7 @@ function ResultsPageContent() {
                     }}
                   >
                     <pre style={{ color: '#f3f4f6', margin: 0, fontSize: '0.875rem' }}>
-                      {JSON.stringify(
-                        {
-                          case_id: caseData.case_id,
-                          results,
-                          model_version: caseData.model_version,
-                          generated_at: new Date().toISOString(),
-                        },
-                        null,
-                        2
-                      )}
+                      {JSON.stringify(rawResult, null, 2)}
                     </pre>
                   </Paper>
                 </AccordionDetails>
@@ -715,7 +757,7 @@ function ResultsPageContent() {
           </Card>
         </motion.div>
 
-        {/* Clinician Actions */}
+        {/* Post-study actions */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -724,23 +766,18 @@ function ResultsPageContent() {
           <Card className="glass-effect" sx={{ mb: 4 }}>
             <CardContent sx={{ p: { xs: 3, md: 4 } }}>
               <Typography variant="h5" className="font-semibold text-gray-800 mb-1">
-                Clinical Validation
+                Research review complete
               </Typography>
               <Typography variant="body2" className="text-gray-600" sx={{ mb: 2 }}>
-                Record your own clinical assessment for this case alongside the OrthoAI output —
-                enter your diagnosis, agreement, and notes without leaving the workflow.
+                Your expert assessment and follow-up are saved. You can now use the
+                diagnosis output or start a fresh analysis.
               </Typography>
               <Box display="flex" gap={2} flexWrap="wrap">
                 <Button
                   variant="contained"
                   className="gradient-purple"
-                  startIcon={<Stethoscope size={18} />}
-                  onClick={() => {
-                    if (typeof window !== 'undefined') {
-                      sessionStorage.setItem('caseId', String(caseData.case_id))
-                    }
-                    router.push(`/clinical?case_id=${caseData.case_id}`)
-                  }}
+                  startIcon={<Science />}
+                  onClick={() => router.push('/cases')}
                   sx={{
                     color: 'white',
                     textTransform: 'none',
@@ -749,7 +786,7 @@ function ResultsPageContent() {
                     py: 1.25,
                   }}
                 >
-                  Start Clinical Validation
+                  Return to Cases
                 </Button>
                 <Button
                   variant="outlined"

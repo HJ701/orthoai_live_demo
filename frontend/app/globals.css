@@ -22,6 +22,9 @@ body {
 
 body {
   color: rgb(var(--foreground-rgb));
+  font-family:
+    Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
   background: linear-gradient(
       to bottom,
       transparent,
@@ -53,4 +56,3 @@ body {
     background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
   }
 }
-

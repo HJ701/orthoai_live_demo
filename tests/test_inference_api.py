@@ -13,7 +13,8 @@ from app.models import Case, Image, InferenceJob, JobState, User
 
 
 class FakeTask:
-    id = "fake-celery-task"
+    def __init__(self, task_id: str):
+        self.id = task_id
 
 
 @pytest.fixture()
@@ -51,8 +52,12 @@ def client(tmp_path, monkeypatch):
     case_id = case.id
     db.close()
 
+    task_counter = 0
+
     def fake_delay(_job_id, _case_id):
-        return FakeTask()
+        nonlocal task_counter
+        task_counter += 1
+        return FakeTask(f"fake-celery-task-{task_counter}")
 
     monkeypatch.setattr(inference_routes.run_inference, "delay", fake_delay)
 
@@ -130,3 +135,44 @@ def test_done_job_with_results_is_reused(client):
     next_run = client.post("/api/v1/inference", json={"case_id": client.case_id})
     assert next_run.status_code == 201
     assert next_run.json()["job_id"] == job_id
+
+
+def test_force_rerun_preserves_completed_job_and_creates_a_new_one(client):
+    created = client.post("/api/v1/inference", json={"case_id": client.case_id})
+    assert created.status_code == 201
+
+    db = client.db_factory()
+    try:
+        original = db.query(InferenceJob).filter_by(id=created.json()["job_id"]).one()
+        original.state = JobState.DONE
+        original.progress = 1.0
+        original.started_at = dt.datetime.utcnow()
+        original.completed_at = dt.datetime.utcnow()
+        from app.models import InferenceResult
+
+        db.add(
+            InferenceResult(
+                job_id=original.id,
+                model_version="test-model",
+                findings="{}",
+                summary="Original preserved result",
+            )
+        )
+        db.commit()
+        original_id = original.id
+    finally:
+        db.close()
+
+    rerun = client.post(
+        "/api/v1/inference",
+        json={"case_id": client.case_id, "force_rerun": True},
+    )
+    assert rerun.status_code == 201
+    assert rerun.json()["job_id"] != original_id
+
+    db = client.db_factory()
+    try:
+        assert db.query(InferenceJob).filter_by(id=original_id).one().state == JobState.DONE
+        assert db.query(InferenceJob).count() == 2
+    finally:
+        db.close()

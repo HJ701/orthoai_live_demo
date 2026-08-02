@@ -20,12 +20,17 @@ RUN useradd --create-home --shell /bin/bash appuser
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY requirements.txt requirements-gpu.txt ./
 
 RUN python -m pip install --upgrade pip
-RUN python -m pip install -r requirements.txt
+RUN python -m pip install -r requirements-gpu.txt
 
 COPY . .
+
+# Fail the image build if Git LFS supplied a pointer or the deployed segmenter
+# was omitted. The COCO-only DINO initialization checkpoint is intentionally
+# excluded by .dockerignore.
+RUN test "$(stat -c%s model_artifacts/dental_segmentation/best.pt)" -gt 300000000
 
 RUN mkdir -p uploads && chown -R appuser:appuser /app
 

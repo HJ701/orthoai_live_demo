@@ -5,7 +5,7 @@ from botocore.exceptions import ClientError, BotoCoreError
 from datetime import datetime
 import uuid
 from app.database import get_db
-from app.models import Case, Image, InferenceJob, JobState
+from app.models import Case, Image, InferenceJob, JobState, ResearchEpisode
 from app.schemas import CaseCreate, CaseResponse, ImageUploadResponse, ImageResponse, CaseNoteCreate, CaseNoteResponse
 from app.api.deps import get_current_user_dependency, get_case_dependency
 from app.core.audit import log_audit_event
@@ -144,6 +144,20 @@ def delete_case(
     case: Case = Depends(get_case_dependency),
 ):
     """Delete a case owned by the current user, including jobs and uploaded images."""
+    research_episode = (
+        db.query(ResearchEpisode)
+        .filter(ResearchEpisode.case_id == case_id)
+        .first()
+    )
+    if research_episode:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This case is part of an immutable research record and cannot be "
+                "deleted"
+            ),
+        )
+
     jobs = db.query(InferenceJob).filter(InferenceJob.case_id == case_id).all()
     for job in jobs:
         if job.state in [JobState.QUEUED, JobState.RUNNING] and job.celery_task_id:
@@ -325,4 +339,3 @@ def add_note(
     )
     
     return note
-

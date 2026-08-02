@@ -20,3 +20,14 @@ frontend/test-results
 frontend/e2e-artifacts
 frontend/tsconfig.tsbuildinfo
 frontend/out
+
+# The API and non-GPU worker do not execute inference. Their image should not
+# carry more than 1 GB of model weights; inference runs on the gpu-inference
+# queue using Dockerfile.gpu.
+orthoai_multimodel_best_model/weights/late_fusion_best.ckpt
+model_artifacts/dental_segmentation/best.pt
+
+# This is an upstream COCO initialization checkpoint, not an inference model.
+# Keep it available for future dental fine-tuning without shipping 536 MB into
+# the production worker image or allowing accidental COCO output in the pilot.
+model_artifacts/dino_detr/checkpoint0033_4scale.pth
