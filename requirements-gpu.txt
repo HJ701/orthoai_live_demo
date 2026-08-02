@@ -2,3 +2,4 @@
 
 # Pinned to the version embedded in dental_segmentation/best.pt.
 ultralytics==8.3.0
+dill==0.4.1
