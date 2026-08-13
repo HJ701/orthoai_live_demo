@@ -100,7 +100,10 @@ function ResultsPageContent() {
           return
         }
         const { researchAPI } = await import('@/lib/api')
-        const context = await researchAPI.context()
+        let context = await researchAPI.context()
+        if (context.participant?.role !== 'clinician') {
+          context = await researchAPI.ensureClinicianAccess('ORTHOAI-HCI-V3')
+        }
         if (context.participant?.role !== 'clinician') {
           if (!cancelled) setResearchAccessChecked(true)
           return
@@ -121,7 +124,16 @@ function ResultsPageContent() {
           return
         }
         if (!cancelled) setResearchAccessChecked(true)
-      } catch {
+      } catch (err) {
+        const message = err instanceof Error ? err.message : ''
+        if (/accept the terms/i.test(message)) {
+          sessionStorage.setItem(
+            'postTermsDestination',
+            `/research?case_id=${encodeURIComponent(caseId)}`,
+          )
+          router.replace('/terms')
+          return
+        }
         // Keep the diagnostic surface available outside an enrolled research study.
         if (!cancelled) setResearchAccessChecked(true)
       }

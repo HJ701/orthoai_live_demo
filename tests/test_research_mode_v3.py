@@ -219,6 +219,25 @@ def create_episode(client):
     return response.json()
 
 
+def create_unenrolled_user(client, *, email: str, accepted_terms: bool) -> int:
+    db = client.db_factory()
+    try:
+        accepted_at = dt.datetime.now(dt.timezone.utc) if accepted_terms else None
+        user = User(
+            email=email,
+            full_name="Pilot Clinician",
+            is_active=True,
+            terms_accepted=accepted_terms,
+            terms_accepted_at=accepted_at,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user.id
+    finally:
+        db.close()
+
+
 def pre_ai_payload():
     return {
         "task_schema_version": TASK_VERSION,
@@ -261,6 +280,94 @@ def complete_clinician_episode(client):
     )
     assert final.status_code == 201, final.text
     return final.json()
+
+
+def test_clinician_access_is_automatic_idempotent_and_governed(research_client):
+    user_id = create_unenrolled_user(
+        research_client,
+        email="new.clinician@example.test",
+        accepted_terms=True,
+    )
+    research_client.active_user["id"] = user_id
+
+    before = research_client.get(
+        f"/api/v1/research/context?study_code={STUDY_CODE}"
+    )
+    assert before.status_code == 200
+    assert before.json()["participant"] is None
+
+    ensured = research_client.post(
+        "/api/v1/research/participants/ensure-clinician",
+        json={"study_code": STUDY_CODE},
+    )
+    assert ensured.status_code == 200, ensured.text
+    participant = ensured.json()["participant"]
+    assert participant["role"] == "clinician"
+    assert participant["participant_code"].startswith("CLN-")
+    assert participant["site_code"] == "TEST"
+    assert ensured.json()["active_epoch_code"] == "TEST-E1"
+
+    repeated = research_client.post(
+        "/api/v1/research/participants/ensure-clinician",
+        json={"study_code": STUDY_CODE},
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["participant"]["id"] == participant["id"]
+
+    db = research_client.db_factory()
+    try:
+        rows = (
+            db.query(ResearchParticipant)
+            .filter(ResearchParticipant.user_id == user_id)
+            .all()
+        )
+        assert len(rows) == 1
+        assert rows[0].participant_metadata == {
+            "enrollment_source": "automatic_authenticated_clinician",
+            "identity_source": "professional_email_otp",
+            "site_assignment": "default_active_site",
+        }
+    finally:
+        db.close()
+
+
+def test_automatic_clinician_access_requires_recorded_terms(research_client):
+    user_id = create_unenrolled_user(
+        research_client,
+        email="terms.required@example.test",
+        accepted_terms=False,
+    )
+    research_client.active_user["id"] = user_id
+
+    response = research_client.post(
+        "/api/v1/research/participants/ensure-clinician",
+        json={"study_code": STUDY_CODE},
+    )
+    assert response.status_code == 428
+    assert "Terms & Data Use Agreement" in response.json()["detail"]
+
+    db = research_client.db_factory()
+    try:
+        assert (
+            db.query(ResearchParticipant)
+            .filter(ResearchParticipant.user_id == user_id)
+            .count()
+            == 0
+        )
+    finally:
+        db.close()
+
+
+def test_manual_bootstrap_and_self_enrollment_routes_are_removed(research_client):
+    assert research_client.post(
+        "/api/v1/research/bootstrap", json={}
+    ).status_code in {404, 405}
+    assert (
+        research_client.post(
+            "/api/v1/research/participants/enroll", json={}
+        ).status_code
+        in {404, 405}
+    )
 
 
 def test_next_episode_is_automatic_and_role_governed(research_client):

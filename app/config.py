@@ -61,15 +61,12 @@ class Settings(BaseSettings):
     dental_segmentation_max_detections: int = 300
     dental_segmentation_device: str = ""
 
-    # Research Mode v3. Bootstrap is a development convenience only; production
-    # study configuration must be created by an explicitly authorized account.
+    # Research Mode v3. The canonical pilot is provisioned by database migration;
+    # authenticated clinicians are enrolled automatically after accepting terms.
     research_mode_enabled: bool = True
     research_ui_version: str = "research-ui/3.0.0"
     research_event_schema_version: str = "research-event/1.0.0"
     research_export_schema_version: str = "orthoai-research-export/3.0.0"
-    research_bootstrap_enabled: bool = False
-    research_self_enrollment_enabled: bool = False
-    research_admin_emails: str = ""
 
     # OpenAI (findings "Structured Output" narrative explanation)
     openai_api_key: str = ""
@@ -141,8 +138,6 @@ class Settings(BaseSettings):
                 errors.append("AWS_S3_BUCKET_NAME must be configured")
             if self.rate_limit_enabled and self.rate_limit_storage.lower() != "redis":
                 errors.append("RATE_LIMIT_STORAGE=redis is required in production")
-            if self.research_bootstrap_enabled:
-                errors.append("RESEARCH_BOOTSTRAP_ENABLED must be false in production")
             if errors:
                 raise ValueError("Invalid production configuration: " + "; ".join(errors))
             

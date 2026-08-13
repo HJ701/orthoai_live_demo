@@ -6,44 +6,10 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.models import ResearchEpisodeState, ResearchRole, ResearchStudyStatus
 
 
-class ResearchBootstrapIn(BaseModel):
+class ResearchClinicianAccessIn(BaseModel):
+    """The client identifies only the fixed pilot; identity and role are derived."""
+
     study_code: str = Field("ORTHOAI-HCI-V3", min_length=3, max_length=64)
-    study_title: str = Field(
-        "OrthoAI longitudinal HCI pilot v3",
-        min_length=3,
-        max_length=255,
-    )
-    protocol_version: str = Field("draft-2026-07", min_length=1, max_length=64)
-    consent_version: str = Field("draft-2026-07", min_length=1, max_length=64)
-    primary_task: str = Field("malocclusion_classification", min_length=1, max_length=128)
-    primary_outcome: Optional[str] = Field(
-        "Human-AI team decision quality and calibrated reliance",
-        max_length=255,
-    )
-    site_code: str = Field("DEMO", min_length=1, max_length=64)
-    site_name: str = Field("Demonstration clinic", min_length=1, max_length=255)
-    site_timezone: str = Field("Asia/Dubai", min_length=1, max_length=64)
-    epoch_code: str = Field("PILOT-V3-E1", min_length=1, max_length=64)
-    epoch_label: str = Field("Pilot v3 research instrumentation epoch", max_length=255)
-    task_schema_version: str = Field(
-        "orthoai.malocclusion-decision/1.0.0",
-        min_length=1,
-        max_length=64,
-    )
-    deployment_policy_version: str = Field("shadow-1.0.0", min_length=1, max_length=64)
-    participant_code: str = Field("DEMO-ADMIN", min_length=1, max_length=64)
-    participant_role: ResearchRole = ResearchRole.RESEARCH_ADMIN
-    activate_study: bool = True
-
-
-class ResearchEnrollIn(BaseModel):
-    study_code: str = Field(..., min_length=3, max_length=64)
-    site_code: str = Field(..., min_length=1, max_length=64)
-    participant_code: str = Field(..., min_length=1, max_length=64)
-    specialty: Optional[str] = Field(None, max_length=128)
-    experience_band: Optional[str] = Field(None, max_length=64)
-    consent_version: str = Field(..., min_length=1, max_length=64)
-    consent_acknowledged: bool
 
 
 class ResearchParticipantAdminCreate(BaseModel):

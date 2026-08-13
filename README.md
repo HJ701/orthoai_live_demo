@@ -39,10 +39,10 @@ The architecture and component responsibilities are documented in
 The research rationale and release gates are in
 [docs/ORTHOAI_PILOT_V3_RESEARCH_REQUIREMENTS.md](docs/ORTHOAI_PILOT_V3_RESEARCH_REQUIREMENTS.md).
 
-Development bootstrap is disabled by default. For an isolated local workspace,
-set `RESEARCH_BOOTSTRAP_ENABLED=true` and restrict
-`RESEARCH_ADMIN_EMAILS` to the signed-in administrator. Never enable bootstrap
-in production; the production configuration validator rejects it.
+The canonical pilot study, site, and first research epoch are provisioned by an
+idempotent database migration. After accepting the Terms & Data Use Agreement,
+an authenticated clinician receives a de-identified participant code
+automatically; no study-role activation step is exposed in the clinical flow.
 
 ## Setup
 

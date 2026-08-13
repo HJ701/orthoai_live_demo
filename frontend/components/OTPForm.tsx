@@ -12,6 +12,7 @@ import {
 } from '@mui/material'
 import { Lock, Refresh } from '@mui/icons-material'
 import { useLogin, useRequestOTP } from '@/lib/hooks/useAuthMutations'
+import { authAPI } from '@/lib/api'
 
 interface OTPFormProps {
   email: string
@@ -103,10 +104,12 @@ export default function OTPForm({ email, onBack, initialDevOtp }: OTPFormProps) 
       if (result) {
         // Store email for reference
         sessionStorage.setItem('userEmail', email)
-        const hasAcceptedTerms = sessionStorage.getItem('termsAccepted')
-        if (hasAcceptedTerms) {
+        const user = await authAPI.me()
+        if (user.terms_accepted) {
+          sessionStorage.setItem('termsAccepted', 'true')
           router.push('/upload')
         } else {
+          sessionStorage.removeItem('termsAccepted')
           router.push('/terms')
         }
       } else {
@@ -207,4 +210,3 @@ export default function OTPForm({ email, onBack, initialDevOtp }: OTPFormProps) 
     </Box>
   )
 }
-

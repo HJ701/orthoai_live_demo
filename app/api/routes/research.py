@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, Optional
@@ -65,11 +67,10 @@ from app.research_schemas import (
     ReferenceCaseResponse,
     ReferenceImageResponse,
     ReferenceQueueItem,
-    ResearchBootstrapIn,
+    ResearchClinicianAccessIn,
     ResearchContextResponse,
     ResearchCorrectionCreate,
     ResearchCorrectionResponse,
-    ResearchEnrollIn,
     ResearchEligibleUserResponse,
     ResearchEpisodeCreate,
     ResearchEpisodeList,
@@ -472,125 +473,55 @@ def get_research_context(
     )
 
 
+def _automatic_participant_code(study: ResearchStudy, current_user: User) -> str:
+    """Create a stable de-identified code without exposing an email address."""
+
+    digest = hmac.new(
+        settings.secret_key.encode("utf-8"),
+        f"{study.code}:{current_user.id}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"CLN-{digest[:12].upper()}"
+
+
 @router.post(
-    "/bootstrap",
+    "/participants/ensure-clinician",
     response_model=ResearchContextResponse,
-    status_code=status.HTTP_201_CREATED,
+    status_code=status.HTTP_200_OK,
 )
-def bootstrap_research_mode(
-    body: ResearchBootstrapIn,
+def ensure_clinician_access(
+    body: ResearchClinicianAccessIn,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_dependency),
 ) -> ResearchContextResponse:
-    research_mode_guard()
-    if not settings.research_bootstrap_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Research bootstrap is disabled",
-        )
-    allowed_admin_emails = {
-        item.strip().lower()
-        for item in settings.research_admin_emails.split(",")
-        if item.strip()
-    }
-    if (
-        allowed_admin_emails
-        and current_user.email.strip().lower() not in allowed_admin_emails
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="The current user is not authorized to initialize Research Mode",
-        )
+    """Idempotently enroll an authenticated, consented pilot clinician.
 
-    now = utc_now()
-    study = db.query(ResearchStudy).filter(ResearchStudy.code == body.study_code).first()
-    if not study:
-        study = ResearchStudy(
-            code=body.study_code,
-            title=body.study_title,
-            protocol_version=body.protocol_version,
-            consent_version=body.consent_version,
-            primary_task=body.primary_task,
-            primary_outcome=body.primary_outcome,
-            status=(
-                ResearchStudyStatus.ACTIVE
-                if body.activate_study
-                else ResearchStudyStatus.DRAFT
-            ),
-            minimum_reference_reviews=2,
-            activated_at=now if body.activate_study else None,
-            config={"bootstrap": True, "clinical_effect": "shadow_only"},
-        )
-        db.add(study)
-        db.flush()
-    elif (
-        study.protocol_version != body.protocol_version
-        or study.consent_version != body.consent_version
-        or study.primary_task != body.primary_task
-    ):
+    The caller cannot select a role, participant code, site, consent version, or
+    epoch. Those governed values are derived from the active pilot configuration.
+    """
+
+    research_mode_guard()
+    study = get_study_or_404(db, body.study_code)
+    if study.status != ResearchStudyStatus.ACTIVE:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Existing study configuration does not match the bootstrap request",
+            detail="The pilot study is not currently active",
         )
-
-    site = (
-        db.query(ResearchSite)
-        .filter(
-            ResearchSite.study_id == study.id,
-            ResearchSite.code == body.site_code,
-        )
-        .first()
-    )
-    if not site:
-        site = ResearchSite(
-            study_id=study.id,
-            code=body.site_code,
-            name=body.site_name,
-            timezone=body.site_timezone,
-            is_active=True,
-        )
-        db.add(site)
-        db.flush()
 
     epoch = (
         db.query(ResearchEpoch)
         .filter(
             ResearchEpoch.study_id == study.id,
-            ResearchEpoch.code == body.epoch_code,
+            ResearchEpoch.is_active.is_(True),
         )
+        .order_by(ResearchEpoch.id.desc())
         .first()
     )
     if not epoch:
-        active_epoch = (
-            db.query(ResearchEpoch)
-            .filter(
-                ResearchEpoch.study_id == study.id,
-                ResearchEpoch.is_active.is_(True),
-            )
-            .first()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The pilot study has no active research epoch",
         )
-        if active_epoch:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="An active epoch already exists; close it before creating another",
-            )
-        epoch = ResearchEpoch(
-            study_id=study.id,
-            code=body.epoch_code,
-            label=body.epoch_label,
-            protocol_version=body.protocol_version,
-            task_schema_version=body.task_schema_version,
-            ui_version=settings.research_ui_version,
-            model_version=settings.model_version,
-            model_artifact_sha256=settings.malocclusion_expected_sha256 or None,
-            deployment_policy_version=body.deployment_policy_version,
-            result_schema_version=settings.result_schema_version,
-            is_active=body.activate_study,
-            starts_at=now if body.activate_study else None,
-            config={"score_fusion": "none", "clinical_effect": "shadow_only"},
-        )
-        db.add(epoch)
-        db.flush()
 
     participant = (
         db.query(ResearchParticipant)
@@ -600,21 +531,82 @@ def bootstrap_research_mode(
         )
         .first()
     )
-    if not participant:
-        participant = ResearchParticipant(
-            study_id=study.id,
-            site_id=site.id,
-            user_id=current_user.id,
-            participant_code=body.participant_code,
-            role=body.participant_role,
-            consent_version=body.consent_version,
-            consented_at=now,
-            is_active=True,
-            participant_metadata={"bootstrap": True},
+    if participant:
+        if participant.role != ResearchRole.CLINICIAN:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This account is reserved for a non-clinician study function",
+            )
+        if not participant.is_active or participant.withdrawn_at is not None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Research participation for this account is inactive",
+            )
+        return ResearchContextResponse(
+            enabled=True,
+            participant=_participant_response(participant),
+            study_status=study.status,
+            protocol_version=study.protocol_version,
+            consent_version=study.consent_version,
+            active_epoch_code=epoch.code,
+            ui_version=settings.research_ui_version,
         )
-        db.add(participant)
+
+    if not current_user.terms_accepted or not current_user.terms_accepted_at:
+        raise HTTPException(
+            status_code=status.HTTP_428_PRECONDITION_REQUIRED,
+            detail="Accept the Terms & Data Use Agreement before starting Research Mode",
+        )
+
+    site = (
+        db.query(ResearchSite)
+        .filter(
+            ResearchSite.study_id == study.id,
+            ResearchSite.is_active.is_(True),
+        )
+        .order_by(ResearchSite.id)
+        .first()
+    )
+    if not site:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The pilot study has no active clinical site",
+        )
+
+    participant = ResearchParticipant(
+        study_id=study.id,
+        site_id=site.id,
+        user_id=current_user.id,
+        participant_code=_automatic_participant_code(study, current_user),
+        role=ResearchRole.CLINICIAN,
+        consent_version=study.consent_version,
+        consented_at=current_user.terms_accepted_at,
+        is_active=True,
+        participant_metadata={
+            "enrollment_source": "automatic_authenticated_clinician",
+            "identity_source": "professional_email_otp",
+            "site_assignment": "default_active_site",
+        },
+    )
+    db.add(participant)
     _ensure_default_instruments(db, study)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        participant = (
+            db.query(ResearchParticipant)
+            .filter(
+                ResearchParticipant.study_id == study.id,
+                ResearchParticipant.user_id == current_user.id,
+            )
+            .first()
+        )
+        if not participant:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A governed clinician enrollment could not be created",
+            ) from exc
     db.refresh(participant)
 
     return ResearchContextResponse(
@@ -626,90 +618,6 @@ def bootstrap_research_mode(
         active_epoch_code=epoch.code,
         ui_version=settings.research_ui_version,
     )
-
-
-@router.post(
-    "/participants/enroll",
-    response_model=ResearchParticipantResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-def self_enroll_participant(
-    body: ResearchEnrollIn,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user_dependency),
-) -> ResearchParticipantResponse:
-    research_mode_guard()
-    if not settings.research_self_enrollment_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Self-enrollment is disabled",
-        )
-    if not body.consent_acknowledged:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Research consent must be acknowledged",
-        )
-    study = get_study_or_404(db, body.study_code)
-    if study.status != ResearchStudyStatus.ACTIVE:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="The study is not active",
-        )
-    if body.consent_version != study.consent_version:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Consent version does not match the active study",
-        )
-    site = (
-        db.query(ResearchSite)
-        .filter(
-            ResearchSite.study_id == study.id,
-            ResearchSite.code == body.site_code,
-            ResearchSite.is_active.is_(True),
-        )
-        .first()
-    )
-    if not site:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Active study site not found",
-        )
-    existing = (
-        db.query(ResearchParticipant)
-        .filter(
-            ResearchParticipant.study_id == study.id,
-            ResearchParticipant.user_id == current_user.id,
-        )
-        .first()
-    )
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="The user is already enrolled in this study",
-        )
-    participant = ResearchParticipant(
-        study_id=study.id,
-        site_id=site.id,
-        user_id=current_user.id,
-        participant_code=body.participant_code,
-        role=ResearchRole.CLINICIAN,
-        specialty=body.specialty,
-        experience_band=body.experience_band,
-        consent_version=body.consent_version,
-        consented_at=utc_now(),
-        is_active=True,
-    )
-    db.add(participant)
-    try:
-        db.commit()
-    except IntegrityError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Participant code or user enrollment already exists",
-        ) from exc
-    db.refresh(participant)
-    return _participant_response(participant)
 
 
 @router.get(

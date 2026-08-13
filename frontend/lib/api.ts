@@ -212,6 +212,14 @@ export const authAPI = {
     const response = await apiFetch('/api/v1/auth/me', { method: 'GET' })
     return response.json()
   },
+
+  async acceptTerms(): Promise<User> {
+    const response = await apiFetch('/api/v1/auth/accept-terms', {
+      method: 'PUT',
+      body: JSON.stringify({}),
+    })
+    return response.json()
+  },
 }
 
 // Cases API
@@ -798,10 +806,12 @@ export const researchAPI = {
     return response.json()
   },
 
-  async bootstrap(): Promise<ResearchContext> {
-    const response = await apiFetch('/api/v1/research/bootstrap', {
+  async ensureClinicianAccess(
+    studyCode = 'ORTHOAI-HCI-V3',
+  ): Promise<ResearchContext> {
+    const response = await apiFetch('/api/v1/research/participants/ensure-clinician', {
       method: 'POST',
-      body: JSON.stringify({}),
+      body: JSON.stringify({ study_code: studyCode }),
     })
     return response.json()
   },
@@ -1091,6 +1101,7 @@ export const researchAPI = {
 
 type DemoState = {
   email: string
+  termsAccepted: boolean
   nextCaseId: number
   nextImageId: number
   nextJobId: number
@@ -1115,6 +1126,7 @@ const DEMO_OTP = '246810'
 function initialDemoState(): DemoState {
   return {
     email: 'clinician@example.com',
+    termsAccepted: false,
     nextCaseId: 1,
     nextImageId: 1,
     nextJobId: 1,
@@ -1368,6 +1380,22 @@ async function demoApiFetch(
       auth_provider: 'local-preview',
       full_name: 'UX Preview Clinician',
       is_active: true,
+      terms_accepted: Boolean(state.termsAccepted),
+      terms_accepted_at: state.termsAccepted ? now : null,
+      last_login_at: now,
+      created_at: now,
+    })
+  }
+  if (path === '/api/v1/auth/accept-terms' && method === 'PUT') {
+    state.termsAccepted = true
+    writeDemoState(state)
+    return demoJson({
+      message: 'Terms accepted',
+      id: 1,
+      email: state.email,
+      auth_provider: 'local-preview',
+      full_name: 'UX Preview Clinician',
+      is_active: true,
       terms_accepted: true,
       terms_accepted_at: now,
       last_login_at: now,
@@ -1476,7 +1504,10 @@ async function demoApiFetch(
   }
 
   if (path === '/api/v1/research/context') return demoJson(demoContext())
-  if (path === '/api/v1/research/bootstrap' && method === 'POST') {
+  if (
+    path === '/api/v1/research/participants/ensure-clinician' &&
+    method === 'POST'
+  ) {
     return demoJson(demoContext())
   }
   if (path === '/api/v1/research/instruments') return demoJson([])

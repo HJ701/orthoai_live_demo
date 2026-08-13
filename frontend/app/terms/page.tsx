@@ -15,22 +15,30 @@ import {
   Paper,
 } from '@mui/material'
 import { motion } from 'framer-motion'
+import { authAPI } from '@/lib/api'
 
 export default function TermsPage() {
   const router = useRouter()
   const [accepted, setAccepted] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
-  const handleAccept = () => {
+  const handleAccept = async () => {
     if (!accepted) return
 
     setLoading(true)
-    sessionStorage.setItem('termsAccepted', 'true')
-    
-    setTimeout(() => {
-      router.push('/upload')
+    setError('')
+    try {
+      await authAPI.acceptTerms()
+      sessionStorage.setItem('termsAccepted', 'true')
+      const destination = sessionStorage.getItem('postTermsDestination') || '/upload'
+      sessionStorage.removeItem('postTermsDestination')
+      router.replace(destination)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Your agreement could not be saved.')
+    } finally {
       setLoading(false)
-    }, 500)
+    }
   }
 
   return (
@@ -102,7 +110,24 @@ export default function TermsPage() {
                 <Typography variant="body2" className="text-gray-600">
                   By uploading clinical images, you confirm that you have obtained proper consent and have the authority to upload these images for analysis. You are responsible for maintaining appropriate documentation of patient consent.
                 </Typography>
+
+                <Typography variant="body2" className="text-gray-700" sx={{ mt: 3, mb: 2 }}>
+                  <strong>6. Research Pilot Participation</strong>
+                </Typography>
+                <Typography variant="body2" className="text-gray-600">
+                  During Research Mode, OrthoAI records your independent assessment,
+                  AI exposure, final decision, confidence, active decision time, and
+                  interface interactions. These de-identified records are used for the
+                  approved OrthoAI pilot and HCI research. The AI remains decision
+                  support only, and your professional clinical judgment remains final.
+                </Typography>
               </Paper>
+
+              {error && (
+                <Alert severity="error" sx={{ mb: 3 }}>
+                  {error}
+                </Alert>
+              )}
 
               <FormControlLabel
                 control={
@@ -114,7 +139,8 @@ export default function TermsPage() {
                 }
                 label={
                   <Typography variant="body2" className="text-gray-700">
-                    I have read and agree to the Terms & Data Use Agreement, including HIPAA/GDPR compliance requirements and UAE data residency provisions.
+                    I have read and agree to the Terms & Data Use Agreement,
+                    including the Research Mode data collection described above.
                   </Typography>
                 }
                 sx={{ mb: 3 }}
@@ -158,4 +184,3 @@ export default function TermsPage() {
     </Box>
   )
 }
-

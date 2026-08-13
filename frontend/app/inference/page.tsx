@@ -196,10 +196,22 @@ function InferencePageContent() {
         router.push(`/research?episode_id=${repeated.id}`)
         return
       }
+      const { researchAPI } = await import('@/lib/api')
+      await researchAPI.ensureClinicianAccess('ORTHOAI-HCI-V3')
       router.push(`/research?case_id=${encodeURIComponent(caseId)}`)
     } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'The research review could not start.'
+      if (/accept the terms/i.test(message)) {
+        sessionStorage.setItem(
+          'postTermsDestination',
+          `/research?case_id=${encodeURIComponent(caseId)}`,
+        )
+        router.push('/terms')
+        return
+      }
       setError(
-        err instanceof Error ? err.message : 'The research review could not start.',
+        message,
       )
       setOpeningResearch(false)
     }
