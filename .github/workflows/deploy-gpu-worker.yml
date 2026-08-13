@@ -142,6 +142,7 @@ jobs:
               --service-name "$GPU_SERVICE" \
               --task-definition "$GPU_TASK_DEFINITION" \
               --desired-count "$DESIRED_COUNT" \
+              --deployment-configuration "minimumHealthyPercent=0,maximumPercent=200" \
               --capacity-provider-strategy "capacityProvider=$GPU_CAPACITY_PROVIDER,weight=1" \
               --network-configuration "awsvpcConfiguration={subnets=[$GPU_SUBNET],securityGroups=[$ECS_SECURITY_GROUP],assignPublicIp=DISABLED}"
           else
@@ -150,6 +151,7 @@ jobs:
               --service "$GPU_SERVICE" \
               --task-definition "$GPU_TASK_DEFINITION" \
               --desired-count "$DESIRED_COUNT" \
+              --deployment-configuration "minimumHealthyPercent=0,maximumPercent=200" \
               --capacity-provider-strategy "capacityProvider=$GPU_CAPACITY_PROVIDER,weight=1"
           fi
 
