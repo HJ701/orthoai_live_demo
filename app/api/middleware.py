@@ -64,6 +64,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return f"ip:{get_remote_address(request)}"
     
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        if request.url.path.startswith("/health") or request.url.path == "/ready":
+            return await call_next(request)
         if not settings.rate_limit_enabled:
             return await call_next(request)
         
@@ -137,7 +139,11 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
             and path_parts[-2].isdigit()
             and "inference" in path_parts
         )
-        if request.url.path in ["/docs", "/redoc", "/openapi.json", "/health", "/ready"] or is_status_poll:
+        if (
+            request.url.path in ["/docs", "/redoc", "/openapi.json", "/ready"]
+            or request.url.path.startswith("/health")
+            or is_status_poll
+        ):
             return await call_next(request)
         
         start_time = time.time()

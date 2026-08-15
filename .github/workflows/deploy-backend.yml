@@ -22,6 +22,7 @@ env:
   CLINICAL_EFS_ID: fs-07ee7a26f5fa99082
   CLINICAL_EFS_ACCESS_POINT_ID: fsap-0cad7e12232849bc1
   CLINICAL_DB_PATH: /mnt/clinical/orthoai_clinical.db
+  INFERENCE_RUNNING_STALE_SECONDS: "900"
 
 jobs:
   deploy:
@@ -79,7 +80,8 @@ jobs:
             --arg clinicalEfsId "$CLINICAL_EFS_ID" \
             --arg clinicalAccessPointId "$CLINICAL_EFS_ACCESS_POINT_ID" \
             --arg clinicalDbPath "$CLINICAL_DB_PATH" \
-            --arg openaiKey "$OPENAI_API_KEY" '
+            --arg openaiKey "$OPENAI_API_KEY" \
+            --arg inferenceRunningStale "$INFERENCE_RUNNING_STALE_SECONDS" '
             def set_env($name; $value):
               .environment = ((.environment // []) | map(select(.name != $name)) + [{"name": $name, "value": $value}]);
             def set_mount($source; $path):
@@ -89,6 +91,7 @@ jobs:
                 .image = $image
                 | set_env("ORTHOAI_CLINICAL_DB"; $clinicalDbPath)
                 | set_env("OPENAI_API_KEY"; $openaiKey)
+                | set_env("INFERENCE_RUNNING_STALE_SECONDS"; $inferenceRunningStale)
                 | set_mount("clinical-data"; "/mnt/clinical")
               else
                 .

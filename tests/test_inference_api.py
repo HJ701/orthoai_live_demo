@@ -258,3 +258,32 @@ def test_cases_response_exposes_resume_job_id(client):
     row = response.json()[0]
     assert row["status"] == "queued"
     assert row["latest_job_id"] == job_id
+
+
+def test_inference_health_endpoint_is_a_deployment_gate(client, monkeypatch):
+    import app.main as main_module
+
+    monkeypatch.setattr(
+        main_module,
+        "get_gpu_worker_health",
+        lambda: {
+            "available": False,
+            "reason": "no_ready_gpu_worker",
+        },
+    )
+    unavailable = client.get("/health/inference")
+    assert unavailable.status_code == 503
+    assert unavailable.json()["status"] == "unavailable"
+
+    monkeypatch.setattr(
+        main_module,
+        "get_gpu_worker_health",
+        lambda: {
+            "available": True,
+            "reason": "ready",
+            "build_commit": "expected-commit",
+        },
+    )
+    ready = client.get("/health/inference")
+    assert ready.status_code == 200
+    assert ready.json()["worker"]["build_commit"] == "expected-commit"

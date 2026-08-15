@@ -8,6 +8,7 @@ from app.config import settings
 from app.database import engine, Base
 from app.api.routes import auth, cases, clinical, inference, research, results, users
 from app.api.middleware import AuditLoggingMiddleware, setup_rate_limiting
+from app.core.inference_health import get_gpu_worker_health
 from sqlalchemy import text
 import uvicorn
 
@@ -80,6 +81,20 @@ app = setup_rate_limiting(app)
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+
+@app.get("/health/inference")
+def inference_health_check():
+    """Deployment gate proving that the GPU worker heartbeat reached Redis."""
+    worker = get_gpu_worker_health()
+    available = bool(worker.get("available"))
+    return JSONResponse(
+        status_code=200 if available else 503,
+        content={
+            "status": "ready" if available else "unavailable",
+            "worker": worker,
+        },
+    )
 
 
 @app.get("/ready")
