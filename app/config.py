@@ -44,6 +44,16 @@ class Settings(BaseSettings):
     dev_expose_otp: bool = False
     enable_local_storage_fallback: bool = True
 
+    # Inference queue resilience. GPU workers publish a short-lived readiness
+    # heartbeat after both clinical models are loaded successfully. Production
+    # APIs fail fast instead of accepting work into an unavailable queue.
+    require_gpu_worker_heartbeat: bool = True
+    gpu_worker_heartbeat_interval_seconds: int = 10
+    gpu_worker_heartbeat_ttl_seconds: int = 45
+    inference_unavailable_worker_grace_seconds: int = 120
+    inference_queued_stale_seconds: int = 30 * 60
+    inference_running_stale_seconds: int = 35 * 60
+
     # Dental instance segmentation (YOLOv8-seg). This is intentionally a
     # separate output from the patient-level malocclusion classifier: their
     # scores are not statistically interchangeable and must never be fused.
@@ -98,6 +108,7 @@ class Settings(BaseSettings):
     # Rate Limiting
     rate_limit_enabled: bool = True
     rate_limit_per_minute: int = 60
+    rate_limit_inference_status_per_minute: int = 180
     rate_limit_storage: str = "memory"  # "memory" or "redis"
     
     # CORS

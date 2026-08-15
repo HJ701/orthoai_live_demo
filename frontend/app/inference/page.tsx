@@ -40,7 +40,7 @@ const STATUS_STEPS: StatusStep[] = [
   {
     status: 'queued',
     label: 'Queued',
-    description: 'Your case has been queued for processing',
+    description: 'Your case is safely queued and waiting for processing capacity',
   },
   {
     status: 'processing',
@@ -69,6 +69,10 @@ function InferencePageContent() {
   const [currentStatus, setCurrentStatus] = useState<Status>('queued')
   const [progress, setProgress] = useState(0)
   const [estimatedTime, setEstimatedTime] = useState<number | null>(null)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const [queuePosition, setQueuePosition] = useState<number | null>(null)
+  const [workerAvailable, setWorkerAvailable] = useState<boolean | null>(null)
+  const [pollError, setPollError] = useState<string | null>(null)
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false)
   const [researchDialogOpen, setResearchDialogOpen] = useState(false)
   const [openingResearch, setOpeningResearch] = useState(false)
@@ -90,12 +94,23 @@ function InferencePageContent() {
     }
 
     if (!jobId) return
+    const activeJobId = jobId
 
-    // Poll job status
-    const pollInterval = setInterval(async () => {
+    let stopped = false
+    let pollTimeout: ReturnType<typeof setTimeout> | undefined
+    let consecutiveFailures = 0
+
+    function schedulePoll(delayMs: number) {
+      if (!stopped) pollTimeout = setTimeout(() => void pollStatus(), delayMs)
+    }
+
+    async function pollStatus() {
       try {
         const { inferenceAPI } = await import('@/lib/api')
-        const status = await inferenceAPI.getStatus(jobId)
+        const status = await inferenceAPI.getStatus(activeJobId)
+        if (stopped) return
+        consecutiveFailures = 0
+        setPollError(null)
 
         // Map backend states to frontend states
         const stateMap: Record<string, Status> = {
@@ -108,42 +123,57 @@ function InferencePageContent() {
 
         // Update progress (convert from 0.0-1.0 to 0-100)
         setProgress(Math.round(status.progress * 100))
+        setQueuePosition(status.queue_position ?? null)
+        setWorkerAvailable(status.worker_available ?? null)
+        setElapsedSeconds(Math.round(status.total_seconds || 0))
 
         // Handle errors
         if (status.error_message) {
           setError(status.error_message)
+        } else {
+          setError(null)
         }
 
         // If completed, navigate to results
         if (status.state === 'done') {
-          clearInterval(pollInterval)
           setProgress(100)
           setResearchDialogOpen(true)
+          return
         }
 
         // If error, stop polling
         if (status.state === 'error') {
-          clearInterval(pollInterval)
           setError(status.error_message || 'Inference failed')
+          return
         }
 
         // Calculate estimated time based on progress
-        if (status.started_at && status.progress > 0) {
+        if (status.state === 'running' && status.started_at && status.progress > 0) {
           const elapsed = Date.now() - new Date(status.started_at).getTime()
           const estimatedTotal = elapsed / status.progress
           const remaining = Math.max(0, estimatedTotal - elapsed)
           setEstimatedTime(Math.round(remaining / 1000))
         } else {
-          setEstimatedTime(45) // Default estimate
+          setEstimatedTime(null)
         }
+        schedulePoll(5000)
       } catch (err: any) {
-        setError(err.message || 'Failed to fetch job status')
-        clearInterval(pollInterval)
+        if (stopped) return
+        consecutiveFailures += 1
+        setPollError(
+          'Connection interrupted. Your analysis is still preserved and this page will retry automatically.',
+        )
+        schedulePoll(Math.min(30000, 3000 * 2 ** (consecutiveFailures - 1)))
       }
-    }, 2000) // Poll every 2 seconds
+    }
+
+    // Poll immediately on page load/resume, then use one non-overlapping
+    // request every five seconds. Slow responses can no longer accumulate.
+    void pollStatus()
 
     return () => {
-      clearInterval(pollInterval)
+      stopped = true
+      if (pollTimeout) clearTimeout(pollTimeout)
     }
   }, [router, caseId, jobId])
 
@@ -153,14 +183,14 @@ function InferencePageContent() {
 
   const confirmCancel = async () => {
     if (!jobId) {
-      router.push('/upload')
+      router.push('/cases')
       return
     }
 
     try {
       const { inferenceAPI } = await import('@/lib/api')
       await inferenceAPI.cancelJob(jobId)
-      router.push('/upload')
+      router.push('/cases')
     } catch (err: any) {
       setError(err.message || 'Failed to cancel job')
       setCancelDialogOpen(false)
@@ -171,6 +201,28 @@ function InferencePageContent() {
   const currentStepIndex = STATUS_STEPS.findIndex((step) => step.status === currentStatus)
   const failed = currentStatus === 'failed'
   const needsXray = failed && /xray|opg/i.test(error || '')
+
+  const retryAnalysis = async () => {
+    setOpeningResearch(true)
+    setError(null)
+    setPollError(null)
+    try {
+      const { inferenceAPI } = await import('@/lib/api')
+      const restarted = await inferenceAPI.startInference(Number(caseId), {
+        forceRerun: true,
+      })
+      sessionStorage.setItem('jobId', String(restarted.job_id))
+      setJobId(restarted.job_id)
+      setCurrentStatus('queued')
+      setProgress(0)
+      setQueuePosition(null)
+      router.replace(`/inference?case_id=${caseId}&job_id=${restarted.job_id}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'The analysis could not be restarted.')
+    } finally {
+      setOpeningResearch(false)
+    }
+  }
 
   const startResearchReview = async () => {
     setOpeningResearch(true)
@@ -388,6 +440,29 @@ function InferencePageContent() {
                   </Typography>
                 )}
 
+                {!failed && currentStatus === 'queued' && (
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    {queuePosition
+                      ? `Queue position: ${queuePosition} · `
+                      : ''}
+                    Waiting {Math.floor(elapsedSeconds / 60)}:
+                    {String(elapsedSeconds % 60).padStart(2, '0')}
+                  </Typography>
+                )}
+
+                {!failed && workerAvailable === false && (
+                  <Alert severity="warning" sx={{ mt: 1, mb: 2, width: '100%' }}>
+                    Processing capacity is temporarily unavailable. Your case is saved;
+                    OrthoAI will either recover or provide a Retry diagnosis action.
+                  </Alert>
+                )}
+
+                {pollError && (
+                  <Alert severity="warning" sx={{ mt: 1, mb: 2, width: '100%' }}>
+                    {pollError}
+                  </Alert>
+                )}
+
                 {/* Error Message + guidance */}
                 {error && (
                   <Alert severity="error" sx={{ mt: 2, mb: 2, width: '100%' }}>
@@ -403,15 +478,25 @@ function InferencePageContent() {
 
                 {/* Actions */}
                 {failed ? (
-                  <Button
-                    variant="contained"
-                    className="gradient-purple"
-                    startIcon={<ArrowBack />}
-                    onClick={() => router.push('/upload')}
-                    sx={{ color: 'white', mt: 1, mb: 1, px: 4, py: 1.5, borderRadius: 2, textTransform: 'none' }}
-                  >
-                    Back to Upload
-                  </Button>
+                  <Box display="flex" gap={1.5} flexWrap="wrap" justifyContent="center">
+                    <Button
+                      variant="contained"
+                      className="gradient-purple"
+                      onClick={() => void retryAnalysis()}
+                      disabled={openingResearch}
+                      sx={{ color: 'white', mt: 1, mb: 1, px: 4, py: 1.5, borderRadius: 2, textTransform: 'none' }}
+                    >
+                      {openingResearch ? 'Retrying…' : 'Retry diagnosis'}
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      startIcon={<ArrowBack />}
+                      onClick={() => router.push('/cases')}
+                      sx={{ mt: 1, mb: 1, px: 3, py: 1.5, borderRadius: 2, textTransform: 'none' }}
+                    >
+                      Return to Cases
+                    </Button>
+                  </Box>
                 ) : currentStatus !== 'completed' ? (
                   <Button
                     variant="outlined"

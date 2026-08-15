@@ -173,39 +173,41 @@ app.mount(
 @app.middleware("http")
 async def add_user_to_request(request: Request, call_next):
     # Extract user from token if available
-    from app.core.security import get_current_user
-    from app.database import SessionLocal
-    
     try:
         # Try to get user from token
         authorization = request.headers.get("Authorization")
         if authorization and authorization.startswith("Bearer "):
             token = authorization.split(" ")[1]
-            db = SessionLocal()
             try:
                 from jose import jwt
                 payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
                 email = payload.get("sub")
                 user_id = payload.get("uid")
                 if user_id is not None:
-                    from app.models import User
-                    user = db.query(User).filter(User.id == int(user_id)).first()
-                    if user:
-                        request.state.user_id = user.id
+                    # The JWT signature has already been verified. The route's
+                    # authentication dependency still validates the user, so a
+                    # second database lookup is unnecessary merely to key rate
+                    # limiting and audit context.
+                    request.state.user_id = int(user_id)
                 elif email:
+                    # Legacy tokens may not include uid; only they need the
+                    # compatibility lookup.
+                    from app.database import SessionLocal
                     from app.models import AuthProvider, User
-                    user = db.query(User).filter(
-                        User.email == email,
-                        User.auth_provider == AuthProvider.EMAIL,
-                    ).first()
-                    if not user:
-                        user = db.query(User).filter(User.email == email).first()
-                    if user:
-                        request.state.user_id = user.id
+                    db = SessionLocal()
+                    try:
+                        user = db.query(User).filter(
+                            User.email == email,
+                            User.auth_provider == AuthProvider.EMAIL,
+                        ).first()
+                        if not user:
+                            user = db.query(User).filter(User.email == email).first()
+                        if user:
+                            request.state.user_id = user.id
+                    finally:
+                        db.close()
             except Exception:
                 pass
-            finally:
-                db.close()
     except Exception:
         pass
     

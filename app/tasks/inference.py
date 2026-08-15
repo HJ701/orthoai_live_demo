@@ -1,5 +1,5 @@
 from celery import Task
-from celery.signals import worker_process_init, worker_ready
+from celery.signals import worker_ready, worker_shutdown
 from sqlalchemy.orm import Session
 from app.celery_app import celery_app
 from app.database import SessionLocal
@@ -16,6 +16,10 @@ from app.core.model_inference import (
     malocclusion_model_provenance,
     predict_case_with_timings,
 )
+from app.core.inference_health import (
+    start_gpu_worker_heartbeat,
+    stop_gpu_worker_heartbeat,
+)
 import json
 from datetime import datetime, timezone
 import logging
@@ -29,10 +33,12 @@ logger = logging.getLogger(__name__)
 _model_preloaded = False
 
 
-def preload_model_runtime() -> None:
+def preload_model_runtime() -> bool:
     global _model_preloaded
-    if _model_preloaded or not settings.preload_model_runtime:
-        return
+    if _model_preloaded:
+        return True
+    if not settings.preload_model_runtime:
+        return False
 
     start = time.perf_counter()
     try:
@@ -41,18 +47,25 @@ def preload_model_runtime() -> None:
             get_dental_segmentation_runtime()
         _model_preloaded = True
         logger.info("Preloaded OrthoAI model runtimes in %.3fs", time.perf_counter() - start)
+        return True
     except Exception:
         logger.exception("Failed to preload OrthoAI model runtime")
-
-
-@worker_process_init.connect
-def preload_model_on_worker_process_init(**_kwargs):
-    preload_model_runtime()
+        return False
 
 
 @worker_ready.connect
 def preload_model_on_worker_ready(**_kwargs):
-    preload_model_runtime()
+    # The dedicated GPU worker uses Celery's solo pool, so this executes in the
+    # same process that will run inference. It avoids unsafe CUDA forking,
+    # duplicate parent/child model memory, and the short prefork child-startup
+    # timeout while still warming both models before work is accepted.
+    if settings.preload_model_runtime and preload_model_runtime():
+        start_gpu_worker_heartbeat()
+
+
+@worker_shutdown.connect
+def stop_model_worker_heartbeat(**_kwargs):
+    stop_gpu_worker_heartbeat()
 
 
 def mock_prediction(patient_id: str, images: list[Image]) -> tuple[dict, dict]:
@@ -122,6 +135,9 @@ def run_inference(self, job_id: int, case_id: int):
         job = db.query(InferenceJob).filter(InferenceJob.id == job_id).first()
         if not job:
             return {"error": "Job not found"}
+        if job.state in {JobState.DONE, JobState.ERROR}:
+            logger.info("Ignoring delivery for terminal inference job %s", job_id)
+            return {"status": "ignored", "job_id": job_id}
         
         job.state = JobState.RUNNING
         job.started_at = datetime.utcnow()
@@ -233,6 +249,14 @@ def run_inference(self, job_id: int, case_id: int):
             timings["model_predict_seconds"],
             timings["total_inference_seconds"],
         )
+
+        # Cancellation or stale-job reconciliation may have occurred while the
+        # GPU models were running. Never overwrite that terminal state or
+        # publish a result the clinician no longer expects.
+        db.refresh(job)
+        if job.state == JobState.ERROR:
+            logger.info("Discarding completed compute for cancelled/stale job %s", job_id)
+            return {"status": "discarded", "job_id": job_id}
 
         job.progress = 0.85
         db.commit()

@@ -136,6 +136,10 @@ class CaseResponse(BaseModel):
     note: Optional[str] = None
     tags: Optional[List[str]] = []
     status: Optional[JobState] = None
+    latest_job_id: Optional[int] = None
+    latest_job_created_at: Optional[datetime] = None
+    latest_job_started_at: Optional[datetime] = None
+    latest_job_error_message: Optional[str] = None
     created_at: datetime
     
     class Config:
@@ -179,6 +183,8 @@ class InferenceStatusResponse(BaseModel):
     queue_seconds: Optional[float] = None
     run_seconds: Optional[float] = None
     total_seconds: Optional[float] = None
+    queue_position: Optional[int] = None
+    worker_available: Optional[bool] = None
     created_at: datetime
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None

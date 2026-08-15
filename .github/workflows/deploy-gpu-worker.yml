@@ -9,8 +9,10 @@ on:
       - "requirements.txt"
       - "requirements-gpu.txt"
       - "app/config.py"
+      - "app/celery_app.py"
       - "app/core/dental_segmentation.py"
       - "app/core/model_inference.py"
+      - "app/core/inference_health.py"
       - "app/tasks/inference.py"
       - "model_artifacts/dental_segmentation/**"
       - "orthoai_multimodel_best_model/**"
@@ -84,7 +86,7 @@ jobs:
             | .containerDefinitions |= map(
                 if .name == "celery" then
                   .image = $image
-                  | .command = ["celery", "-A", "app.celery_app", "worker", "-Q", "gpu-inference", "--loglevel=info", "--concurrency=1"]
+                  | .command = ["celery", "-A", "app.celery_app", "worker", "-Q", "gpu-inference", "--loglevel=info", "--pool=solo", "--concurrency=1"]
                   | .resourceRequirements = [{"type": "GPU", "value": "1"}]
                   | set_env("ORTHOAI_DEVICE"; "cuda")
                   | set_env("PRELOAD_MODEL_RUNTIME"; "true")

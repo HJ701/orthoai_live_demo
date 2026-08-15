@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.deps import get_current_user_dependency
 from app.api.routes import inference as inference_routes
+from app.config import settings
 from app.database import Base, get_db
 from app.main import app
 from app.models import Case, Image, InferenceJob, JobState, User
@@ -176,3 +177,84 @@ def test_force_rerun_preserves_completed_job_and_creates_a_new_one(client):
         assert db.query(InferenceJob).count() == 2
     finally:
         db.close()
+
+
+def test_stale_queued_job_is_closed_and_retry_creates_new_job(client, monkeypatch):
+    created = client.post("/api/v1/inference", json={"case_id": client.case_id})
+    original_id = created.json()["job_id"]
+
+    db = client.db_factory()
+    try:
+        original = db.get(InferenceJob, original_id)
+        original.created_at = dt.datetime.utcnow() - dt.timedelta(hours=2)
+        db.commit()
+    finally:
+        db.close()
+
+    monkeypatch.setattr(settings, "inference_queued_stale_seconds", 60)
+    monkeypatch.setattr(
+        inference_routes.celery_app.control,
+        "revoke",
+        lambda *_args, **_kwargs: None,
+    )
+
+    retried = client.post(
+        "/api/v1/inference",
+        json={"case_id": client.case_id, "force_rerun": True},
+    )
+    assert retried.status_code == 201
+    assert retried.json()["job_id"] != original_id
+
+    db = client.db_factory()
+    try:
+        original = db.get(InferenceJob, original_id)
+        assert original.state == JobState.ERROR
+        assert "case is preserved" in original.error_message
+    finally:
+        db.close()
+
+
+def test_queue_publish_failure_is_recoverable(client, monkeypatch):
+    def fail_publish(*_args, **_kwargs):
+        raise ConnectionError("broker unavailable")
+
+    monkeypatch.setattr(inference_routes.run_inference, "delay", fail_publish)
+    response = client.post("/api/v1/inference", json={"case_id": client.case_id})
+    assert response.status_code == 503
+    assert "case is preserved" in response.json()["detail"]
+
+    db = client.db_factory()
+    try:
+        job = db.query(InferenceJob).filter_by(case_id=client.case_id).one()
+        assert job.state == JobState.ERROR
+        assert job.completed_at is not None
+    finally:
+        db.close()
+
+
+def test_start_fails_fast_when_no_gpu_worker_is_ready(client, monkeypatch):
+    monkeypatch.setattr(
+        inference_routes,
+        "get_gpu_worker_health",
+        lambda: {"available": False, "reason": "no_ready_gpu_worker"},
+    )
+    response = client.post("/api/v1/inference", json={"case_id": client.case_id})
+    assert response.status_code == 503
+    assert response.headers["retry-after"] == "30"
+
+    db = client.db_factory()
+    try:
+        assert db.query(InferenceJob).count() == 0
+    finally:
+        db.close()
+
+
+def test_cases_response_exposes_resume_job_id(client):
+    created = client.post("/api/v1/inference", json={"case_id": client.case_id})
+    job_id = created.json()["job_id"]
+
+    response = client.get("/api/v1/cases")
+    assert response.status_code == 200
+    row = response.json()[0]
+    assert row["status"] == "queued"
+    assert row["latest_job_id"] == job_id

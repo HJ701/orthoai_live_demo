@@ -54,6 +54,10 @@ export interface CaseResponse {
   note?: string
   tags?: string[]
   status?: 'queued' | 'running' | 'done' | 'error'
+  latest_job_id?: number | null
+  latest_job_created_at?: string | null
+  latest_job_started_at?: string | null
+  latest_job_error_message?: string | null
   created_at: string
 }
 
@@ -87,9 +91,17 @@ export interface InferenceResponse {
 export type JobState = 'queued' | 'running' | 'done' | 'error'
 
 export interface InferenceStatusResponse {
+  case_id: number
   state: JobState
   progress: number
   error_message?: string | null
+  is_terminal?: boolean
+  can_cancel?: boolean
+  queue_seconds?: number | null
+  run_seconds?: number | null
+  total_seconds?: number | null
+  queue_position?: number | null
+  worker_available?: boolean | null
   created_at: string
   started_at?: string | null
   completed_at?: string | null

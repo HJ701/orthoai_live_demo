@@ -9,6 +9,7 @@ from app.models import Case, Image, InferenceJob, JobState, ResearchEpisode
 from app.schemas import CaseCreate, CaseResponse, ImageUploadResponse, ImageResponse, CaseNoteCreate, CaseNoteResponse
 from app.api.deps import get_current_user_dependency, get_case_dependency
 from app.core.audit import log_audit_event
+from app.core.inference_jobs import reconcile_stale_job
 from app.core.s3_storage import delete_file_from_s3, upload_file_to_s3, download_file_from_s3
 from app.celery_app import celery_app
 from app.config import settings
@@ -32,21 +33,28 @@ def list_cases(
     # Get latest inference job state per case
     # Query all jobs for these cases, ordered by created_at DESC
     # Then group by case_id to get the latest one per case
-    status_map: Dict[int, JobState] = {}
+    job_map: Dict[int, InferenceJob] = {}
+    reconciled = False
     if case_ids:
         # Get all jobs for these cases, ordered by created_at DESC
         all_jobs = db.query(InferenceJob).filter(
             InferenceJob.case_id.in_(case_ids)
         ).order_by(InferenceJob.created_at.desc()).all()
         
-        # Build mapping, keeping only the first (latest) job per case_id
+        # Build mapping, keeping only the first (latest) job per case_id.
         for job in all_jobs:
-            if job.case_id not in status_map:
-                status_map[job.case_id] = job.state
+            if job.case_id not in job_map:
+                if reconcile_stale_job(job):
+                    reconciled = True
+                job_map[job.case_id] = job
+
+    if reconciled:
+        db.commit()
     
     # Build response with status
     result = []
     for case in cases:
+        latest_job = job_map.get(case.id)
         case_dict = {
             "id": case.id,
             "user_id": case.user_id,
@@ -56,7 +64,11 @@ def list_cases(
             "clinic_location": case.clinic_location,
             "note": case.note,
             "tags": case.tags if case.tags else [],
-            "status": status_map.get(case.id),
+            "status": latest_job.state if latest_job else None,
+            "latest_job_id": latest_job.id if latest_job else None,
+            "latest_job_created_at": latest_job.created_at if latest_job else None,
+            "latest_job_started_at": latest_job.started_at if latest_job else None,
+            "latest_job_error_message": latest_job.error_message if latest_job else None,
             "created_at": case.created_at
         }
         result.append(CaseResponse(**case_dict))
@@ -122,6 +134,9 @@ def get_case(
         InferenceJob.case_id == case_id
     ).order_by(InferenceJob.created_at.desc()).first()
 
+    if latest_job and reconcile_stale_job(latest_job):
+        db.commit()
+
     return CaseResponse(
         id=case.id,
         user_id=case.user_id,
@@ -132,6 +147,10 @@ def get_case(
         note=case.note,
         tags=case.tags if case.tags else [],
         status=latest_job.state if latest_job else None,
+        latest_job_id=latest_job.id if latest_job else None,
+        latest_job_created_at=latest_job.created_at if latest_job else None,
+        latest_job_started_at=latest_job.started_at if latest_job else None,
+        latest_job_error_message=latest_job.error_message if latest_job else None,
         created_at=case.created_at,
     )
 

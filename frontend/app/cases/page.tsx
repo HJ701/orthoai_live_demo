@@ -37,7 +37,7 @@ import {
 
 const STUDY_CODE = 'ORTHOAI-HCI-V3'
 
-type DiagnosisStatus = 'completed' | 'processing' | 'failed'
+type DiagnosisStatus = 'not_started' | 'completed' | 'processing' | 'failed'
 type ResearchStatus = 'not_started' | 'in_progress' | 'completed'
 
 interface CaseRow {
@@ -46,6 +46,8 @@ interface CaseRow {
   case_title: string
   created_at: string
   diagnosis_status: DiagnosisStatus
+  latest_job_id?: number
+  latest_job_error_message?: string
   research_status: ResearchStatus
   research_attempts: number
   latest_episode_id?: number
@@ -69,7 +71,8 @@ function isReviewComplete(episode: ResearchEpisode): boolean {
 function diagnosisStatus(value?: string): DiagnosisStatus {
   if (value === 'queued' || value === 'running') return 'processing'
   if (value === 'error') return 'failed'
-  return 'completed'
+  if (value === 'done') return 'completed'
+  return 'not_started'
 }
 
 export default function CasesPage() {
@@ -138,6 +141,8 @@ export default function CasesPage() {
             case_title: caseTitle || `Case ${apiCase.id}`,
             created_at: apiCase.created_at,
             diagnosis_status: diagnosisStatus(apiCase.status),
+            latest_job_id: apiCase.latest_job_id || undefined,
+            latest_job_error_message: apiCase.latest_job_error_message || undefined,
             research_status: !latest
               ? 'not_started'
               : isReviewComplete(latest)
@@ -204,7 +209,7 @@ export default function CasesPage() {
     setError('')
     try {
       const started = await inferenceAPI.startInference(Number(item.case_id), {
-        forceRerun: true,
+        forceRerun: item.diagnosis_status !== 'not_started',
       })
       sessionStorage.setItem('jobId', String(started.job_id))
       const repeatQuery = item.latest_completed_episode_id
@@ -217,6 +222,15 @@ export default function CasesPage() {
       setError(err instanceof Error ? err.message : 'Diagnosis could not be restarted.')
       setBusyCaseId('')
     }
+  }
+
+  function continueDiagnosis(item: CaseRow) {
+    if (!item.latest_job_id) {
+      setError('The active analysis could not be reopened. Please refresh the Cases page.')
+      return
+    }
+    sessionStorage.setItem('jobId', String(item.latest_job_id))
+    router.push(`/inference?case_id=${item.case_id}&job_id=${item.latest_job_id}`)
   }
 
   return (
@@ -320,6 +334,14 @@ export default function CasesPage() {
                   : item.research_status === 'in_progress'
                     ? 'Continue research review'
                     : 'Start research review'
+              const diagnosisAction =
+                item.diagnosis_status === 'processing'
+                  ? 'Continue analysis'
+                  : item.diagnosis_status === 'failed'
+                    ? 'Retry diagnosis'
+                    : item.diagnosis_status === 'not_started'
+                      ? 'Start diagnosis'
+                      : reviewAction
 
               return (
                 <motion.div
@@ -367,14 +389,18 @@ export default function CasesPage() {
                                 ? 'Diagnosis complete'
                                 : item.diagnosis_status === 'processing'
                                   ? 'Diagnosis processing'
-                                  : 'Diagnosis failed'
+                                  : item.diagnosis_status === 'failed'
+                                    ? 'Diagnosis failed'
+                                    : 'Diagnosis not started'
                             }
                             color={
                               item.diagnosis_status === 'completed'
                                 ? 'success'
                                 : item.diagnosis_status === 'processing'
                                   ? 'warning'
-                                  : 'error'
+                                  : item.diagnosis_status === 'failed'
+                                    ? 'error'
+                                    : 'default'
                             }
                             variant="outlined"
                             size="small"
@@ -407,11 +433,22 @@ export default function CasesPage() {
                         <Button
                           variant="contained"
                           endIcon={<ArrowForward />}
-                          disabled={isBusy || item.diagnosis_status !== 'completed'}
-                          onClick={() => void openResearch(item)}
+                          disabled={isBusy}
+                          onClick={() => {
+                            if (item.diagnosis_status === 'processing') {
+                              continueDiagnosis(item)
+                            } else if (
+                              item.diagnosis_status === 'failed' ||
+                              item.diagnosis_status === 'not_started'
+                            ) {
+                              void repeatDiagnosis(item)
+                            } else {
+                              void openResearch(item)
+                            }
+                          }}
                           sx={{ minHeight: 44, borderRadius: 2.25, textTransform: 'none' }}
                         >
-                          {isBusy ? 'Opening…' : reviewAction}
+                          {isBusy ? 'Opening…' : diagnosisAction}
                         </Button>
                         {item.research_status === 'completed' && (
                           <Button
@@ -425,19 +462,17 @@ export default function CasesPage() {
                             View diagnosis
                           </Button>
                         )}
-                        <Button
-                          variant="text"
-                          startIcon={<Refresh />}
-                          disabled={
-                            isBusy ||
-                            item.diagnosis_status === 'processing' ||
-                            item.research_status === 'in_progress'
-                          }
-                          onClick={() => void repeatDiagnosis(item)}
-                          sx={{ minHeight: 44, textTransform: 'none' }}
-                        >
-                          Run diagnosis again
-                        </Button>
+                        {item.diagnosis_status === 'completed' && (
+                          <Button
+                            variant="text"
+                            startIcon={<Refresh />}
+                            disabled={isBusy || item.research_status === 'in_progress'}
+                            onClick={() => void repeatDiagnosis(item)}
+                            sx={{ minHeight: 44, textTransform: 'none' }}
+                          >
+                            Run diagnosis again
+                          </Button>
+                        )}
                       </Box>
                     </CardContent>
                   </Card>
