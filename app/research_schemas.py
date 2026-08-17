@@ -6,6 +6,44 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.models import ResearchEpisodeState, ResearchRole, ResearchStudyStatus
 
 
+def _normalize_iotn_grade(
+    value: Any,
+    *,
+    field_name: str,
+    minimum: int,
+    maximum: int,
+) -> Any:
+    """Accept ordinary numeric grades and clinician-entered IOTN codes/text."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a number or text value")
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and not value.is_integer():
+            raise ValueError(f"{field_name} numeric grades must be whole numbers")
+        grade = int(value)
+        if grade < minimum or grade > maximum:
+            raise ValueError(
+                f"{field_name} numeric grades must be between {minimum} and {maximum}"
+            )
+        return grade
+    if isinstance(value, str):
+        grade = value.strip()
+        if not grade:
+            return None
+        if len(grade) > 64:
+            raise ValueError(f"{field_name} must be 64 characters or fewer")
+        if grade.isdigit():
+            numeric_grade = int(grade)
+            if numeric_grade < minimum or numeric_grade > maximum:
+                raise ValueError(
+                    f"{field_name} numeric grades must be between {minimum} and {maximum}"
+                )
+            return numeric_grade
+        return grade
+    raise ValueError(f"{field_name} must be a number or text value")
+
+
 class ResearchClinicianAccessIn(BaseModel):
     """The client identifies only the fixed pilot; identity and role are derived."""
 
@@ -97,7 +135,22 @@ class DecisionSubmission(BaseModel):
     def decision_must_not_be_empty(cls, value: Dict[str, Any]):
         if not value:
             raise ValueError("decision must contain at least one field")
-        return value
+        normalized = dict(value)
+        if "dhc" in normalized:
+            normalized["dhc"] = _normalize_iotn_grade(
+                normalized["dhc"],
+                field_name="IOTN DHC",
+                minimum=1,
+                maximum=5,
+            )
+        if "ac" in normalized:
+            normalized["ac"] = _normalize_iotn_grade(
+                normalized["ac"],
+                field_name="IOTN AC",
+                minimum=1,
+                maximum=10,
+            )
+        return normalized
 
 
 class FinalDecisionSubmission(DecisionSubmission):

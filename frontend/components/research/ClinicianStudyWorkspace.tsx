@@ -52,6 +52,30 @@ const actionOptions = [
   'Proceed to treatment planning',
 ]
 
+function iotnInputError(
+  rawValue: string,
+  label: string,
+  minimum: number,
+  maximum: number,
+): string {
+  const value = rawValue.trim()
+  if (!value) return ''
+  if (value.length > 64) return `${label} must be 64 characters or fewer.`
+  if (/^\d+$/.test(value)) {
+    const numericValue = Number(value)
+    if (numericValue < minimum || numericValue > maximum) {
+      return `${label} must be between ${minimum} and ${maximum}.`
+    }
+  }
+  return ''
+}
+
+function iotnPayloadValue(rawValue: string): number | string | null {
+  const value = rawValue.trim()
+  if (!value) return null
+  return /^\d+$/.test(value) ? Number(value) : value
+}
+
 const influenceOptions = [
   ['no_influence', 'No influence'],
   ['confirmed_assessment', 'Confirmed my assessment'],
@@ -725,8 +749,14 @@ export default function ClinicianStudyWorkspace({
   }, [emitEvent, episode])
 
   async function submitInitialAssessment() {
-    if (!episode || !preClass || !preDhc) {
+    const dhcError = iotnInputError(preDhc, 'IOTN DHC', 1, 5)
+    const acError = iotnInputError(preAc, 'IOTN AC', 1, 10)
+    if (!episode || !preClass || !preDhc.trim()) {
       setError('Choose a malocclusion class and DHC grade.')
+      return
+    }
+    if (dhcError || acError) {
+      setError(dhcError || acError)
       return
     }
     setBusy(true)
@@ -740,8 +770,8 @@ export default function ClinicianStudyWorkspace({
         task_schema_version: TASK_SCHEMA_VERSION,
         decision: {
           malocclusion_class: preClass,
-          dhc: Number(preDhc),
-          ac: preAc ? Number(preAc) : null,
+          dhc: iotnPayloadValue(preDhc),
+          ac: iotnPayloadValue(preAc),
           clinical_action: preAction || null,
         },
         confidence: preConfidence,
@@ -749,8 +779,8 @@ export default function ClinicianStudyWorkspace({
         client_started_at: phaseStartedAt.current,
         client_submitted_at: isoNow(),
       })
-      const revealed = await researchAPI.revealAI(locked.id)
-      updateEpisode(revealed)
+      updateEpisode(locked)
+      setNotice('Initial assessment saved. Preparing the AI comparison…')
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'The initial assessment could not be saved.',
@@ -761,8 +791,14 @@ export default function ClinicianStudyWorkspace({
   }
 
   async function submitFinalDecision() {
-    if (!episode || !finalClass || !finalDhc) {
+    const dhcError = iotnInputError(finalDhc, 'IOTN DHC', 1, 5)
+    const acError = iotnInputError(finalAc, 'IOTN AC', 1, 10)
+    if (!episode || !finalClass || !finalDhc.trim()) {
       setError('Choose a final malocclusion class and DHC grade.')
+      return
+    }
+    if (dhcError || acError) {
+      setError(dhcError || acError)
       return
     }
     setBusy(true)
@@ -775,8 +811,8 @@ export default function ClinicianStudyWorkspace({
         task_schema_version: TASK_SCHEMA_VERSION,
         decision: {
           malocclusion_class: finalClass,
-          dhc: Number(finalDhc),
-          ac: finalAc ? Number(finalAc) : null,
+          dhc: iotnPayloadValue(finalDhc),
+          ac: iotnPayloadValue(finalAc),
           clinical_action: finalAction || null,
         },
         confidence: finalConfidence,
@@ -1019,21 +1055,31 @@ export default function ClinicianStudyWorkspace({
                       <TextField
                         fullWidth
                         required
-                        type="number"
                         label="IOTN DHC"
-                        inputProps={{ min: 1, max: 5 }}
+                        placeholder="e.g. 4 or 4h"
+                        inputProps={{ maxLength: 64, inputMode: 'text' }}
                         value={preDhc}
                         onChange={(event) => setPreDhc(event.target.value)}
+                        error={Boolean(iotnInputError(preDhc, 'IOTN DHC', 1, 5))}
+                        helperText={
+                          iotnInputError(preDhc, 'IOTN DHC', 1, 5) ||
+                          'Enter a numeric grade or an IOTN code.'
+                        }
                       />
                     </Grid>
                     <Grid item xs={6} md={3}>
                       <TextField
                         fullWidth
-                        type="number"
                         label="IOTN AC (optional)"
-                        inputProps={{ min: 1, max: 10 }}
+                        placeholder="e.g. 6 or not assessable"
+                        inputProps={{ maxLength: 64, inputMode: 'text' }}
                         value={preAc}
                         onChange={(event) => setPreAc(event.target.value)}
+                        error={Boolean(iotnInputError(preAc, 'IOTN AC', 1, 10))}
+                        helperText={
+                          iotnInputError(preAc, 'IOTN AC', 1, 10) ||
+                          'Enter a numeric grade or short text.'
+                        }
                       />
                     </Grid>
                     <Grid item xs={12} md={6}>
@@ -1071,7 +1117,8 @@ export default function ClinicianStudyWorkspace({
                       size="large"
                       endIcon={busy ? undefined : <ArrowForward />}
                       onClick={() => void submitInitialAssessment()}
-                      disabled={busy || !preClass || !preDhc}
+                      disabled={busy || !preClass || !preDhc.trim()}
+                      aria-busy={busy}
                       sx={{
                         minHeight: 50,
                         px: 3,
@@ -1181,21 +1228,35 @@ export default function ClinicianStudyWorkspace({
                           <TextField
                             fullWidth
                             required
-                            type="number"
                             label="IOTN DHC"
-                            inputProps={{ min: 1, max: 5 }}
+                            placeholder="e.g. 4 or 4h"
+                            inputProps={{ maxLength: 64, inputMode: 'text' }}
                             value={finalDhc}
                             onChange={(event) => setFinalDhc(event.target.value)}
+                            error={Boolean(
+                              iotnInputError(finalDhc, 'IOTN DHC', 1, 5)
+                            )}
+                            helperText={
+                              iotnInputError(finalDhc, 'IOTN DHC', 1, 5) ||
+                              'Enter a numeric grade or an IOTN code.'
+                            }
                           />
                         </Grid>
                         <Grid item xs={6} md={3}>
                           <TextField
                             fullWidth
-                            type="number"
                             label="IOTN AC"
-                            inputProps={{ min: 1, max: 10 }}
+                            placeholder="e.g. 6 or not assessable"
+                            inputProps={{ maxLength: 64, inputMode: 'text' }}
                             value={finalAc}
                             onChange={(event) => setFinalAc(event.target.value)}
+                            error={Boolean(
+                              iotnInputError(finalAc, 'IOTN AC', 1, 10)
+                            )}
+                            helperText={
+                              iotnInputError(finalAc, 'IOTN AC', 1, 10) ||
+                              'Enter a numeric grade or short text.'
+                            }
                           />
                         </Grid>
                         <Grid item xs={12}>
@@ -1233,9 +1294,10 @@ export default function ClinicianStudyWorkspace({
                         <Button
                           variant="contained"
                           size="large"
-                          endIcon={<ArrowForward />}
+                          endIcon={busy ? undefined : <ArrowForward />}
                           onClick={() => void submitFinalDecision()}
-                          disabled={busy || !finalClass || !finalDhc}
+                          disabled={busy || !finalClass || !finalDhc.trim()}
+                          aria-busy={busy}
                           sx={{
                             minHeight: 50,
                             px: 3,

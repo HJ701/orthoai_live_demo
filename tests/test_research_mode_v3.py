@@ -282,6 +282,53 @@ def complete_clinician_episode(client):
     return final.json()
 
 
+def test_iotn_grades_accept_text_codes_and_numeric_values(research_client):
+    episode = create_episode(research_client)
+    episode_id = episode["id"]
+
+    locked = research_client.post(
+        f"/api/v1/research/episodes/{episode_id}/pre-ai",
+        json={
+            "task_schema_version": TASK_VERSION,
+            "decision": {
+                "malocclusion_class": "Class II div 1",
+                "dhc": " 4h ",
+                "ac": 6,
+                "clinical_action": "Orthodontic referral",
+            },
+            "confidence": 72,
+        },
+    )
+    assert locked.status_code == 201, locked.text
+    assert locked.json()["pre_ai_decision"]["decision"]["dhc"] == "4h"
+    assert locked.json()["pre_ai_decision"]["decision"]["ac"] == 6
+
+    revealed = research_client.post(
+        f"/api/v1/research/episodes/{episode_id}/reveal"
+    )
+    assert revealed.status_code == 201, revealed.text
+
+    final = research_client.post(
+        f"/api/v1/research/episodes/{episode_id}/final",
+        json={
+            "task_schema_version": TASK_VERSION,
+            "decision": {
+                "malocclusion_class": "Class II div 1",
+                "dhc": 4,
+                "ac": "Not assessable",
+                "clinical_action": "Orthodontic referral",
+            },
+            "confidence": 78,
+        },
+    )
+    assert final.status_code == 201, final.text
+    assert final.json()["final_decision"]["decision"]["dhc"] == 4
+    assert (
+        final.json()["final_decision"]["decision"]["ac"]
+        == "Not assessable"
+    )
+
+
 def test_clinician_access_is_automatic_idempotent_and_governed(research_client):
     user_id = create_unenrolled_user(
         research_client,
